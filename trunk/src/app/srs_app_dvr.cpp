@@ -34,6 +34,7 @@ SrsDvrSegmenter::SrsDvrSegmenter()
     jitter = NULL;
     plan = NULL;
     wait_keyframe = true;
+    app_name_to_ignore_audio = std::vector<std::string>();
     
     fragment = new SrsFragment();
     fs = new SrsFileWriter();
@@ -58,6 +59,13 @@ srs_error_t SrsDvrSegmenter::initialize(SrsDvrPlan* p, SrsRequest* r)
     
     jitter_algorithm = (SrsRtmpJitterAlgorithm)_srs_config->get_dvr_time_jitter(req->vhost);
     wait_keyframe = _srs_config->get_dvr_wait_keyframe(req->vhost);
+    SrsConfDirective* apps_conf = _srs_config->get_dvr_app_name_to_ignore_audio(req->vhost);
+
+    if (apps_conf != NULL) {
+        for (int i = 0; i < (int)apps_conf->args.size(); i++) {
+            app_name_to_ignore_audio.push_back(apps_conf->args[i]);
+        }
+    }
     
     return srs_success;
 }
@@ -120,6 +128,10 @@ srs_error_t SrsDvrSegmenter::write_audio(SrsSharedPtrMessage* shared_audio, SrsF
 {
     srs_error_t err = srs_success;
     
+    if (std::find(app_name_to_ignore_audio.begin(), app_name_to_ignore_audio.end(), req->app) != app_name_to_ignore_audio.end()) {
+        return srs_success;
+    }
+
     SrsSharedPtrMessage* audio = shared_audio->copy();
     SrsAutoFree(SrsSharedPtrMessage, audio);
     

@@ -42,6 +42,8 @@ protected:
     bool wait_keyframe;
     // The FLV/MP4 fragment file.
     SrsFragment* fragment;
+    // The app name from tcUrl to ignore audio
+    std::vector<std::string> app_name_to_ignore_audio;
 private:
     SrsRequest* req;
     SrsDvrPlan* plan;
