@@ -25,6 +25,7 @@ using namespace std;
 #include <srs_app_utility.hpp>
 #include <srs_kernel_mp4.hpp>
 #include <srs_app_fragment.hpp>
+#include <srs_app_record_mode_cache.hpp>
 
 #define SRS_FWRITE_CACHE_SIZE 65536
 
@@ -34,7 +35,6 @@ SrsDvrSegmenter::SrsDvrSegmenter()
     jitter = NULL;
     plan = NULL;
     wait_keyframe = true;
-    app_name_to_ignore_audio = std::vector<std::string>();
     
     fragment = new SrsFragment();
     fs = new SrsFileWriter();
@@ -59,13 +59,6 @@ srs_error_t SrsDvrSegmenter::initialize(SrsDvrPlan* p, SrsRequest* r)
     
     jitter_algorithm = (SrsRtmpJitterAlgorithm)_srs_config->get_dvr_time_jitter(req->vhost);
     wait_keyframe = _srs_config->get_dvr_wait_keyframe(req->vhost);
-    SrsConfDirective* apps_conf = _srs_config->get_dvr_app_name_to_ignore_audio(req->vhost);
-
-    if (apps_conf != NULL) {
-        for (int i = 0; i < (int)apps_conf->args.size(); i++) {
-            app_name_to_ignore_audio.push_back(apps_conf->args[i]);
-        }
-    }
     
     return srs_success;
 }
@@ -128,10 +121,6 @@ srs_error_t SrsDvrSegmenter::write_audio(SrsSharedPtrMessage* shared_audio, SrsF
 {
     srs_error_t err = srs_success;
     
-    if (std::find(app_name_to_ignore_audio.begin(), app_name_to_ignore_audio.end(), req->app) != app_name_to_ignore_audio.end()) {
-        return srs_success;
-    }
-
     SrsSharedPtrMessage* audio = shared_audio->copy();
     SrsAutoFree(SrsSharedPtrMessage, audio);
     
@@ -621,6 +610,9 @@ srs_error_t SrsDvrPlan::on_publish(SrsRequest* r)
     srs_freep(req);
     req = r->copy();
 
+    SrsRecordModeCache* _rm_cache = SrsRecordModeCache::instance();
+    dvr_record_audio = _rm_cache->get(req->stream);
+
     return srs_success;
 }
 
@@ -647,6 +639,10 @@ srs_error_t SrsDvrPlan::on_audio(SrsSharedPtrMessage* shared_audio, SrsFormat* f
         return err;
     }
     
+    if (!dvr_record_audio) {
+        return err;
+    }
+
     if ((err = segment->write_audio(shared_audio, format)) != srs_success) {
         return srs_error_wrap(err, "write audio");
     }

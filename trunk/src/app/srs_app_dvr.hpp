@@ -31,6 +31,7 @@ class SrsFormat;
 #include <srs_app_source.hpp>
 #include <srs_app_reload.hpp>
 #include <srs_app_async_call.hpp>
+#include <srs_app_record_mode_cache.hpp>
 
 // The segmenter for DVR, to write a segment file in flv/mp4.
 class SrsDvrSegmenter : public ISrsReloadHandler
@@ -42,8 +43,8 @@ protected:
     bool wait_keyframe;
     // The FLV/MP4 fragment file.
     SrsFragment* fragment;
-    // The app name from tcUrl to ignore audio
-    std::vector<std::string> app_name_to_ignore_audio;
+    bool is_record_audio;
+    SrsRecordModeCache* record_mode_cache;
 private:
     SrsRequest* req;
     SrsDvrPlan* plan;
@@ -164,6 +165,7 @@ protected:
     SrsOriginHub* hub;
     SrsDvrSegmenter* segment;
     bool dvr_enabled;
+    bool dvr_record_audio;
 public:
     SrsDvrPlan();
     virtual ~SrsDvrPlan();

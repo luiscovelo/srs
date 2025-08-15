@@ -22,6 +22,7 @@ using namespace std;
 #include <srs_protocol_amf0.hpp>
 #include <srs_app_utility.hpp>
 #include <srs_app_statistic.hpp>
+#include <srs_app_record_mode_cache.hpp>
 
 // The HTTP response body should be "0", see https://github.com/ossrs/srs/issues/3215#issuecomment-1319991512
 #define SRS_HTTP_RESPONSE_OK SRS_XSTR(0)
@@ -158,6 +159,38 @@ srs_error_t SrsHttpHooks::on_publish(string url, SrsRequest* req)
             cid.c_str(), url.c_str(), data.c_str(), res.c_str(), status_code);
     }
     
+    SrsJsonObject* robj = NULL;
+    SrsAutoFree(SrsJsonObject, robj);
+
+    if (true) {
+        SrsJsonAny* rjson = NULL;
+
+        if ((rjson = SrsJsonAny::loads(res)) == NULL) {
+            return srs_error_new(ERROR_HTTP_DATA_INVALID, "load json from %s", res.c_str());
+        }
+
+        if (!rjson->is_object()) {
+            srs_freep(rjson);
+            return srs_error_new(ERROR_HTTP_DATA_INVALID, "response %s", res.c_str());
+        }
+
+        robj = rjson->to_object();
+    }
+
+    SrsJsonAny* prop = NULL;
+    if ((prop = robj->ensure_property_object("record_mode")) == NULL) {
+        return srs_error_new(ERROR_HTTP_DATA_INVALID, "parse dvr_mode %s", res.c_str());
+    }
+
+    SrsJsonObject* record_mode = prop->to_object();
+
+    if ((prop = record_mode->ensure_property_boolean("is_record_audio")) == NULL) {
+        return srs_error_new(ERROR_HTTP_DATA_INVALID, "parse is_record_audio %s", res.c_str());
+    }
+
+    SrsRecordModeCache* _rm_cache = SrsRecordModeCache::instance();
+    _rm_cache->set(req->stream, prop->to_boolean());
+
     srs_trace("http: on_publish ok, client_id=%s, url=%s, request=%s, response=%s",
         cid.c_str(), url.c_str(), data.c_str(), res.c_str());
     
@@ -175,6 +208,9 @@ void SrsHttpHooks::on_unpublish(string url, SrsRequest* req)
     SrsJsonObject* obj = SrsJsonAny::object();
     SrsAutoFree(SrsJsonObject, obj);
     
+    SrsRecordModeCache* _rm_cache = SrsRecordModeCache::instance();
+    _rm_cache->del(req->stream);
+
     obj->set("server_id", SrsJsonAny::str(stat->server_id().c_str()));
     obj->set("service_id", SrsJsonAny::str(stat->service_id().c_str()));
     obj->set("action", SrsJsonAny::str("on_unpublish"));
