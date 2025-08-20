@@ -1024,6 +1024,14 @@ srs_error_t SrsProtocol::read_message_header(SrsChunkStream* chunk, char fmt)
         pp[0] = *p++;
         pp[3] = 0;
         
+        int32_t delta_ts = chunk->header.timestamp_delta - chunk->header.timestamp;
+
+        if (chunk->header.is_audio()) {
+            srs_trace2("RTMP-STACK", "fmt=%d pkt_type=%s accumulator_ts=%d encoder_ts=%d delta_ts=%d", fmt, "audio", chunk->header.timestamp, chunk->header.timestamp_delta, delta_ts);
+        } else {
+            srs_trace2("RTMP-STACK", "fmt=%d pkt_type=%s accumulator_ts=%d encoder_ts=%d delta_ts=%d", fmt, "video", chunk->header.timestamp, chunk->header.timestamp_delta, delta_ts);
+        }
+
         // fmt: 0
         // timestamp: 3 bytes
         // If the timestamp is greater than or equal to 16777215
@@ -1115,6 +1123,12 @@ srs_error_t SrsProtocol::read_message_header(SrsChunkStream* chunk, char fmt)
         // always use 31bits timestamp, for some server may use 32bits extended timestamp.
         timestamp &= 0x7fffffff;
         
+        if (chunk->header.is_audio()) {
+            srs_trace2("RTMP-STACK", "fmt=%d pkt_type=%s accumulator_ts=%d encoder_ts=%d encoder_extended_ts=%d", fmt, "audio", chunk->header.timestamp, chunk->header.timestamp_delta, timestamp);
+        } else {
+            srs_trace2("RTMP-STACK", "fmt=%d pkt_type=%s accumulator_ts=%d encoder_ts=%d encoder_extended_ts=%d", fmt, "video", chunk->header.timestamp, chunk->header.timestamp_delta, timestamp);
+        }
+
         /**
          * RTMP specification and ffmpeg/librtmp is false,
          * but, adobe changed the specification, so flash/FMLE/FMS always true.
