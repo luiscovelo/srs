@@ -36,9 +36,9 @@ using namespace std;
 #include <srs_app_rtc_source.hpp>
 #include <srs_app_http_hooks.hpp>
 
-#define CONST_MAX_JITTER_MS         250
-#define CONST_MAX_JITTER_MS_NEG         -250
-#define DEFAULT_FRAME_TIME_MS         10
+#define CONST_MAX_JITTER_MS           500
+#define CONST_MAX_JITTER_MS_NEG       -500
+#define DEFAULT_FRAME_TIME_MS         67
 
 // for 26ms per audio packet,
 // 115 packets is 3s.
