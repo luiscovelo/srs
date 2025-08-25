@@ -2373,6 +2373,12 @@ srs_error_t SrsLiveSource::on_video(SrsCommonMessage* shared_video)
         }
         
         srs_warn("drop unknown header video, size=%d, bytes[0]=%#x", shared_video->size, b0);
+
+        // return error if header video is in h265
+        if (SrsFlvVideo::h265(shared_video->payload, shared_video->size)) {
+            return srs_error_new(ERROR_SYSTEM_PACKET_INVALID, "H.265/HEVC codec not supported in this context");
+        }
+
         return err;
     }
     
