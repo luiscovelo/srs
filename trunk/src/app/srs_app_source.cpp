@@ -116,11 +116,11 @@ srs_error_t SrsRtmpJitter::correct(SrsSharedPtrMessage* msg, SrsRtmpJitterAlgori
     int64_t time = msg->timestamp;
     int64_t delta = time - last_pkt_time;
     
-    if (msg->is_audio()) {
-        srs_trace2("APP-SOURCE", "pkt_type=%s timestamp=%d delta=%d", "audio", time, delta);
-    } else {
-        srs_trace2("APP-SOURCE", "pkt_type=%s timestamp=%d delta=%d", "video", time, delta);
-    }
+    // if (msg->is_audio()) {
+    //     srs_trace2("APP-SOURCE", "pkt_type=%s timestamp=%d delta=%d", "audio", time, delta);
+    // } else {
+    //     srs_trace2("APP-SOURCE", "pkt_type=%s timestamp=%d delta=%d", "video", time, delta);
+    // }
 
     // if jitter detected, reset the delta.
     if (delta < CONST_MAX_JITTER_MS_NEG || delta > CONST_MAX_JITTER_MS) {

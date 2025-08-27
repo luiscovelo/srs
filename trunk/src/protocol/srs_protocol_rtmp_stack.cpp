@@ -1026,10 +1026,16 @@ srs_error_t SrsProtocol::read_message_header(SrsChunkStream* chunk, char fmt)
         
         int32_t delta_ts = chunk->header.timestamp_delta - chunk->header.timestamp;
 
+        // if (chunk->header.is_audio()) {
+        //     srs_trace2("RTMP-STACK", "fmt=%d pkt_type=%s accumulator_ts=%d encoder_ts=%d delta_ts=%d", fmt, "audio", chunk->header.timestamp, chunk->header.timestamp_delta, delta_ts);
+        // } else {
+        //     srs_trace2("RTMP-STACK", "fmt=%d pkt_type=%s accumulator_ts=%d encoder_ts=%d delta_ts=%d", fmt, "video", chunk->header.timestamp, chunk->header.timestamp_delta, delta_ts);
+        // }
+
         if (chunk->header.is_audio()) {
-            srs_trace2("RTMP-STACK", "fmt=%d pkt_type=%s accumulator_ts=%d encoder_ts=%d delta_ts=%d", fmt, "audio", chunk->header.timestamp, chunk->header.timestamp_delta, delta_ts);
+            srs_trace2("RTMP-STACK", "fmt=%d pkt_type=%s encoder_ts=%d", fmt, "audio", chunk->header.timestamp_delta);
         } else {
-            srs_trace2("RTMP-STACK", "fmt=%d pkt_type=%s accumulator_ts=%d encoder_ts=%d delta_ts=%d", fmt, "video", chunk->header.timestamp, chunk->header.timestamp_delta, delta_ts);
+            srs_trace2("RTMP-STACK", "fmt=%d pkt_type=%s encoder_ts=%d", fmt, "video", chunk->header.timestamp_delta);
         }
 
         // fmt: 0
@@ -1124,9 +1130,9 @@ srs_error_t SrsProtocol::read_message_header(SrsChunkStream* chunk, char fmt)
         timestamp &= 0x7fffffff;
         
         if (chunk->header.is_audio()) {
-            srs_trace2("RTMP-STACK", "fmt=%d pkt_type=%s accumulator_ts=%d encoder_ts=%d encoder_extended_ts=%d", fmt, "audio", chunk->header.timestamp, chunk->header.timestamp_delta, timestamp);
+            srs_trace2("RTMP-STACK", "fmt=%d pkt_type=%s encoder_ts=%d encoder_extended_ts=%d", fmt, "audio", chunk->header.timestamp_delta, timestamp);
         } else {
-            srs_trace2("RTMP-STACK", "fmt=%d pkt_type=%s accumulator_ts=%d encoder_ts=%d encoder_extended_ts=%d", fmt, "video", chunk->header.timestamp, chunk->header.timestamp_delta, timestamp);
+            srs_trace2("RTMP-STACK", "fmt=%d pkt_type=%s encoder_ts=%d encoder_extended_ts=%d", fmt, "video", chunk->header.timestamp_delta, timestamp);
         }
 
         /**
