@@ -262,21 +262,6 @@ The knowledge base (`memory/srs-*.md`) captures William's knowledge about SRS �
 - `product-en.md` — Release history: milestones from v1.0 (2013) to v7.0 (2025+), codenames, key achievements per release, AI contributor era (2025+)
 - `security-advisories-en.md` — CVE reports: CVE-2024-29882 (JSONP XSS), CVE-2023-34105 (command injection in demo api-server), with patch versions and links
 
-### Next-Generation Server Docs
-
-**Next-Generation Server Docs** (`docs/proxy/`) — Documentation for the Go server:
-- `proxy-design.md` — Architecture: stateless proxy with built-in load balancing, single-proxy vs multi-proxy (Redis) deployment modes, horizontal scaling behind NLB
-- `proxy-protocol.md` — Backend registration protocol: default backend for debugging, automatic registration via SRS system API, heartbeat mechanism, env vars
-- `proxy-usage.md` — Step-by-step guide: build proxy, start SRS origin, verify registration, publish with FFmpeg, verify playback with ffprobe
-- `proxy-load-balancer.md` — Load balancer design: memory vs Redis implementations, stream-to-server mapping, server health via heartbeats, protocol-specific state
-- `proxy-origin-cluster.md` — Origin cluster tutorial: build proxy + SRS, configure multi-origin with proxy, stream publishing and playback verification
-
-**Next-Generation Server Performance Docs** (`docs/perf/`) — Performance analysis guides for the Go server:
-- `proxy-whep.md` — WHEP perf analysis: enable GO_PPROF, run publisher + N WHEP players via srs_bench, collect CPU/alloc/heap/goroutine/trace profiles, read hot spots, diff before/after with `pprof -base`
-
-**Next-Generation Server API Examples** — Executable API documentation:
-- `internal/rtmp/example_test.go` — RTMP API examples: AMF0, handshake, and protocol workflow
-
 ## Testing and Verification Structure
 
 How to verify SRS works correctly.
@@ -318,16 +303,6 @@ How to verify SRS works correctly.
 - RTC Plaintext
 - Reconnecting Load Test
 - Janus
-
-`.openclaw/skills/srs-develop/scripts/` — Go proxy verification and setup scripts:
-- `proxy-utest.sh` — Runs Go proxy unit tests with optional coverage.
-- `proxy-e2e-test.sh` — Single-origin RTMP proxy E2E test.
-- `proxy-e2e-cluster-test.sh` — Multi-origin memory load-balancer E2E test.
-- `proxy-e2e-redis-test.sh` — Multi-proxy Redis load-balancer E2E test.
-- `proxy-e2e-transmux-test.sh` — RTMP publish through proxy, then verify RTMP, HTTP-FLV, HLS, and WebRTC playback.
-- `proxy-e2e-srt-test.sh` — SRT publish through proxy, then verify SRT, RTMP, HTTP-FLV, and HLS playback (WebRTC WHEP is a placeholder).
-- `proxy-e2e-whip-test.sh` — WHIP (WebRTC) publish through proxy, then verify RTMP, HTTP-FLV, and HLS playback via the origin's `rtc_to_rtmp` bridge (WebRTC WHEP is a placeholder).
-- `setup-ffmpeg-with-whip.sh` — macOS-only: build ffmpeg from source into `~/.local/` with WHIP (openssl DTLS) and SRT support; auto-invoked by `proxy-e2e-srt-test.sh` and `proxy-e2e-whip-test.sh` when no suitable ffmpeg is found.
 
 **Summary: The Key Differences**
 
