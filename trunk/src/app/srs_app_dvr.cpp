@@ -1010,6 +1010,10 @@ srs_error_t SrsDvr::on_audio(SrsSharedPtrMessage* shared_audio, SrsFormat* forma
     if (!actived) {
         return srs_success;
     }
+
+    if (req && req->skip_dvr_audio) {
+        return srs_success;
+    }
     
     return plan->on_audio(shared_audio, format);
 }
@@ -1023,4 +1027,3 @@ srs_error_t SrsDvr::on_video(SrsSharedPtrMessage* shared_video, SrsFormat* forma
     
     return plan->on_video(shared_video, format);
 }
-

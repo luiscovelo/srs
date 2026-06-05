@@ -85,8 +85,8 @@ public:
     //         ignore if empty.
     static srs_error_t on_forward_backend(std::string url, SrsRequest* req, std::vector<std::string>& rtmp_urls);
 private:
+    static void parse_on_publish_response(std::string res, SrsRequest* req);
     static srs_error_t do_post(SrsHttpClient* hc, std::string url, std::string req, int& code, std::string& res);
 };
 
 #endif
-

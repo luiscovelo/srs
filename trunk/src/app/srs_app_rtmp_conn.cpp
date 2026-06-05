@@ -454,7 +454,7 @@ srs_error_t SrsRtmpConn::service_cycle()
         
         // when not system control error, fatal error, return.
         if (!srs_is_system_control_error(err)) {
-            return srs_error_wrap(err, "rtmp: stream service");
+            return srs_error_wrap(err, "rtmp: stream service, stream=%s", req->stream.c_str());
         }
         
         // for republish, continue service
@@ -1138,6 +1138,8 @@ srs_error_t SrsRtmpConn::acquire_publish(SrsSharedPtr<SrsLiveSource> source)
     }
 #endif
 
+    source->update_publish_controls(req);
+
     // Start publisher now.
     if (info->edge) {
         err = source->on_edge_start_publish();
@@ -1676,4 +1678,3 @@ void SrsRtmpConn::expire()
 {
     trd->interrupt();
 }
-

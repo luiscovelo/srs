@@ -11,10 +11,13 @@ using namespace std;
 #include <srs_app_fragment.hpp>
 #include <srs_app_security.hpp>
 #include <srs_app_config.hpp>
+#include <srs_app_dvr.hpp>
+#include <srs_app_http_hooks.hpp>
 
 #include <srs_app_st.hpp>
 #include <srs_protocol_conn.hpp>
 #include <srs_app_conn.hpp>
+#include <srs_protocol_rtmp_stack.hpp>
 
 class MockIDResource : public ISrsResource
 {
@@ -179,6 +182,48 @@ VOID TEST(AppCoroutineTest, Dummy)
         EXPECT_TRUE(ERROR_THREAD_DUMMY == srs_error_code(err));
         srs_freep(err);
     }
+}
+
+VOID TEST(AppHttpHooksTest, OnPublishResponseFlags)
+{
+    if (true) {
+        SrsRequest req;
+        SrsHttpHooks::parse_on_publish_response("{\"code\":0,\"data\":{\"skip_dvr_audio\":false,\"hevc_supported\":true}}", &req);
+        EXPECT_FALSE(req.skip_dvr_audio);
+        EXPECT_TRUE(req.hevc_supported);
+    }
+
+    if (true) {
+        SrsRequest req;
+        SrsHttpHooks::parse_on_publish_response("{\"code\":0,\"data\":{}}", &req);
+        EXPECT_TRUE(req.skip_dvr_audio);
+        EXPECT_FALSE(req.hevc_supported);
+    }
+
+    if (true) {
+        SrsRequest req;
+        SrsHttpHooks::parse_on_publish_response("0", &req);
+        EXPECT_TRUE(req.skip_dvr_audio);
+        EXPECT_FALSE(req.hevc_supported);
+    }
+
+    if (true) {
+        SrsRequest req;
+        SrsHttpHooks::parse_on_publish_response("{\"code\":0,\"data\":{\"skip_dvr_audio\":true}}", &req);
+        EXPECT_TRUE(req.skip_dvr_audio);
+        EXPECT_FALSE(req.hevc_supported);
+    }
+}
+
+VOID TEST(AppDvrTest, IgnoreAudioByRequest)
+{
+    srs_error_t err = srs_success;
+
+    SrsDvr dvr;
+    dvr.actived = true;
+    dvr.req = new SrsRequest();
+
+    HELPER_EXPECT_SUCCESS(dvr.on_audio(NULL, NULL));
 }
 
 class MockCoroutineHandler : public ISrsCoroutineHandler {
@@ -782,4 +827,3 @@ VOID TEST(AppSecurity, CheckSecurity)
     //       3. allow if matches allow strategy.
     //       4. deny if matches deny strategy.
 }
-

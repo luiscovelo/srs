@@ -148,11 +148,38 @@ srs_error_t SrsHttpHooks::on_publish(string url, SrsRequest* req)
         return srs_error_wrap(err, "http: on_publish failed, client_id=%s, url=%s, request=%s, response=%s, code=%d",
             cid.c_str(), url.c_str(), data.c_str(), res.c_str(), status_code);
     }
+
+    parse_on_publish_response(res, req);
     
     srs_trace("http: on_publish ok, client_id=%s, url=%s, request=%s, response=%s",
         cid.c_str(), url.c_str(), data.c_str(), res.c_str());
     
     return err;
+}
+
+void SrsHttpHooks::parse_on_publish_response(string res, SrsRequest* req)
+{
+    SrsUniquePtr<SrsJsonAny> info(SrsJsonAny::loads(res));
+    if (!info.get() || !info->is_object()) {
+        return;
+    }
+
+    SrsJsonObject* res_info = info->to_object();
+    SrsJsonAny* data = res_info->ensure_property_object("data");
+    if (!data) {
+        return;
+    }
+
+    SrsJsonObject* obj = data->to_object();
+    SrsJsonAny* prop = NULL;
+
+    if ((prop = obj->ensure_property_boolean("skip_dvr_audio")) != NULL) {
+        req->skip_dvr_audio = prop->to_boolean();
+    }
+
+    if ((prop = obj->ensure_property_boolean("hevc_supported")) != NULL) {
+        req->hevc_supported = prop->to_boolean();
+    }
 }
 
 void SrsHttpHooks::on_unpublish(string url, SrsRequest* req)

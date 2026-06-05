@@ -61,11 +61,25 @@ func TestSlow_RtmpPublish_RtmpPlay_HEVC_Basic(t *testing.T) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
-	// Start SRS server and wait for it to be ready.
-	svr := NewSRSServer()
+	// Start hooks service.
+	hooks := NewHooksService(hooksOnPublishFlags(false, true))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		r7 = hooks.Run(ctx, cancel)
+	}()
+
+	// Start SRS server and wait for it to be ready.
+	svr := NewSRSServer(func(v *srsServer) {
+		v.envs = []string{
+			"SRS_VHOST_HTTP_HOOKS_ENABLED=on",
+			fmt.Sprintf("SRS_VHOST_HTTP_HOOKS_ON_PUBLISH=http://localhost:%v/api/v1/publish", hooks.HooksAPI()),
+		}
+	})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-hooks.ReadyCtx().Done()
 		r0 = svr.Run(ctx, cancel)
 	}()
 
@@ -151,6 +165,14 @@ func TestSlow_RtmpPublish_HttpFlvPlay_HEVC_Basic(t *testing.T) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
+	// Start hooks service.
+	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		r7 = hooks.Run(ctx, cancel)
+	}()
+
 	// Start SRS server and wait for it to be ready.
 	svr := NewSRSServer(func(v *srsServer) {
 		v.envs = []string{
@@ -158,11 +180,14 @@ func TestSlow_RtmpPublish_HttpFlvPlay_HEVC_Basic(t *testing.T) {
 			"SRS_VHOST_HTTP_REMUX_ENABLED=on",
 			// If guessing, we might got no audio because transcoding might be delay for sending audio packets.
 			"SRS_VHOST_HTTP_REMUX_GUESS_HAS_AV=off",
+			"SRS_VHOST_HTTP_HOOKS_ENABLED=on",
+			fmt.Sprintf("SRS_VHOST_HTTP_HOOKS_ON_PUBLISH=http://localhost:%v/api/v1/publish", hooks.HooksAPI()),
 		}
 	})
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		<-hooks.ReadyCtx().Done()
 		r0 = svr.Run(ctx, cancel)
 	}()
 
@@ -248,17 +273,28 @@ func TestSlow_RtmpPublish_HttpTsPlay_HEVC_Basic(t *testing.T) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
+	// Start hooks service.
+	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		r7 = hooks.Run(ctx, cancel)
+	}()
+
 	// Start SRS server and wait for it to be ready.
 	svr := NewSRSServer(func(v *srsServer) {
 		v.envs = []string{
 			"SRS_HTTP_SERVER_ENABLED=on",
 			"SRS_VHOST_HTTP_REMUX_ENABLED=on",
 			"SRS_VHOST_HTTP_REMUX_MOUNT=[vhost]/[app]/[stream].ts",
+			"SRS_VHOST_HTTP_HOOKS_ENABLED=on",
+			fmt.Sprintf("SRS_VHOST_HTTP_HOOKS_ON_PUBLISH=http://localhost:%v/api/v1/publish", hooks.HooksAPI()),
 		}
 	})
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		<-hooks.ReadyCtx().Done()
 		r0 = svr.Run(ctx, cancel)
 	}()
 
@@ -332,9 +368,9 @@ func TestSlow_RtmpPublish_HlsPlay_HEVC_Basic(t *testing.T) {
 	}
 
 	// Check a set of errors.
-	var r0, r1, r2, r3, r4, r5, r6 error
+	var r0, r1, r2, r3, r4, r5, r6, r7 error
 	defer func(ctx context.Context) {
-		if err := filterTestError(ctx.Err(), r0, r1, r2, r3, r4, r5, r6); err != nil {
+		if err := filterTestError(ctx.Err(), r0, r1, r2, r3, r4, r5, r6, r7); err != nil {
 			t.Errorf("Fail for err %+v", err)
 		} else {
 			logger.Tf(ctx, "test done with err %+v", err)
@@ -344,16 +380,27 @@ func TestSlow_RtmpPublish_HlsPlay_HEVC_Basic(t *testing.T) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
+	// Start hooks service.
+	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		r7 = hooks.Run(ctx, cancel)
+	}()
+
 	// Start SRS server and wait for it to be ready.
 	svr := NewSRSServer(func(v *srsServer) {
 		v.envs = []string{
 			"SRS_HTTP_SERVER_ENABLED=on",
 			"SRS_VHOST_HLS_ENABLED=on",
+			"SRS_VHOST_HTTP_HOOKS_ENABLED=on",
+			fmt.Sprintf("SRS_VHOST_HTTP_HOOKS_ON_PUBLISH=http://localhost:%v/api/v1/publish", hooks.HooksAPI()),
 		}
 	})
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		<-hooks.ReadyCtx().Done()
 		r0 = svr.Run(ctx, cancel)
 	}()
 
@@ -435,7 +482,7 @@ func TestSlow_RtmpPublish_DvrFlv_HEVC_Basic(t *testing.T) {
 	defer wg.Wait()
 
 	// Start hooks service.
-	hooks := NewHooksService()
+	hooks := NewHooksService(hooksOnPublishFlags(false, true))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -450,6 +497,7 @@ func TestSlow_RtmpPublish_DvrFlv_HEVC_Basic(t *testing.T) {
 			"SRS_VHOST_DVR_DVR_PATH=./objs/nginx/html/[app]/[stream].[timestamp].flv",
 			fmt.Sprintf("SRS_VHOST_DVR_DVR_DURATION=%v", *srsFFprobeDuration),
 			"SRS_VHOST_HTTP_HOOKS_ENABLED=on",
+			fmt.Sprintf("SRS_VHOST_HTTP_HOOKS_ON_PUBLISH=http://localhost:%v/api/v1/publish", hooks.HooksAPI()),
 			fmt.Sprintf("SRS_VHOST_HTTP_HOOKS_ON_DVR=http://localhost:%v/api/v1/dvrs", hooks.HooksAPI()),
 		}
 	})
@@ -551,7 +599,7 @@ func TestSlow_RtmpPublish_DvrMp4_HEVC_Basic(t *testing.T) {
 	defer wg.Wait()
 
 	// Start hooks service.
-	hooks := NewHooksService()
+	hooks := NewHooksService(hooksOnPublishFlags(false, true))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -566,6 +614,7 @@ func TestSlow_RtmpPublish_DvrMp4_HEVC_Basic(t *testing.T) {
 			"SRS_VHOST_DVR_DVR_PATH=./objs/nginx/html/[app]/[stream].[timestamp].mp4",
 			fmt.Sprintf("SRS_VHOST_DVR_DVR_DURATION=%v", *srsFFprobeDuration),
 			"SRS_VHOST_HTTP_HOOKS_ENABLED=on",
+			fmt.Sprintf("SRS_VHOST_HTTP_HOOKS_ON_PUBLISH=http://localhost:%v/api/v1/publish", hooks.HooksAPI()),
 			fmt.Sprintf("SRS_VHOST_HTTP_HOOKS_ON_DVR=http://localhost:%v/api/v1/dvrs", hooks.HooksAPI()),
 		}
 	})
@@ -672,17 +721,28 @@ func TestSlow_SrtPublish_RtmpPlay_HEVC_Basic(t *testing.T) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
+	// Start hooks service.
+	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		r7 = hooks.Run(ctx, cancel)
+	}()
+
 	// Start SRS server and wait for it to be ready.
 	svr := NewSRSServer(func(v *srsServer) {
 		v.envs = []string{
 			"SRS_SRT_SERVER_ENABLED=on",
 			"SRS_VHOST_SRT_ENABLED=on",
 			"SRS_VHOST_SRT_SRT_TO_RTMP=on",
+			"SRS_VHOST_HTTP_HOOKS_ENABLED=on",
+			fmt.Sprintf("SRS_VHOST_HTTP_HOOKS_ON_PUBLISH=http://localhost:%v/api/v1/publish", hooks.HooksAPI()),
 		}
 	})
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		<-hooks.ReadyCtx().Done()
 		r0 = svr.Run(ctx, cancel)
 	}()
 
@@ -768,6 +828,14 @@ func TestSlow_SrtPublish_HttpFlvPlay_HEVC_Basic(t *testing.T) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
+	// Start hooks service.
+	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		r7 = hooks.Run(ctx, cancel)
+	}()
+
 	// Start SRS server and wait for it to be ready.
 	svr := NewSRSServer(func(v *srsServer) {
 		v.envs = []string{
@@ -776,11 +844,14 @@ func TestSlow_SrtPublish_HttpFlvPlay_HEVC_Basic(t *testing.T) {
 			"SRS_VHOST_SRT_ENABLED=on",
 			"SRS_VHOST_SRT_SRT_TO_RTMP=on",
 			"SRS_VHOST_HTTP_REMUX_ENABLED=on",
+			"SRS_VHOST_HTTP_HOOKS_ENABLED=on",
+			fmt.Sprintf("SRS_VHOST_HTTP_HOOKS_ON_PUBLISH=http://localhost:%v/api/v1/publish", hooks.HooksAPI()),
 		}
 	})
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		<-hooks.ReadyCtx().Done()
 		r0 = svr.Run(ctx, cancel)
 	}()
 
@@ -866,6 +937,14 @@ func TestSlow_SrtPublish_HttpTsPlay_HEVC_Basic(t *testing.T) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
+	// Start hooks service.
+	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		r7 = hooks.Run(ctx, cancel)
+	}()
+
 	// Start SRS server and wait for it to be ready.
 	svr := NewSRSServer(func(v *srsServer) {
 		v.envs = []string{
@@ -875,11 +954,14 @@ func TestSlow_SrtPublish_HttpTsPlay_HEVC_Basic(t *testing.T) {
 			"SRS_VHOST_SRT_SRT_TO_RTMP=on",
 			"SRS_VHOST_HTTP_REMUX_ENABLED=on",
 			"SRS_VHOST_HTTP_REMUX_MOUNT=[vhost]/[app]/[stream].ts",
+			"SRS_VHOST_HTTP_HOOKS_ENABLED=on",
+			fmt.Sprintf("SRS_VHOST_HTTP_HOOKS_ON_PUBLISH=http://localhost:%v/api/v1/publish", hooks.HooksAPI()),
 		}
 	})
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		<-hooks.ReadyCtx().Done()
 		r0 = svr.Run(ctx, cancel)
 	}()
 
@@ -955,9 +1037,9 @@ func TestSlow_SrtPublish_HlsPlay_HEVC_Basic(t *testing.T) {
 	ctx, cancel := context.WithTimeout(logger.WithContext(context.Background()), time.Duration(*srsTimeout)*time.Millisecond)
 	defer cancel()
 	// Check a set of errors.
-	var r0, r1, r2, r3, r4 error
+	var r0, r1, r2, r3, r4, r5 error
 	defer func(ctx context.Context) {
-		if err := filterTestError(ctx.Err(), r0, r1, r2, r3, r4); err != nil {
+		if err := filterTestError(ctx.Err(), r0, r1, r2, r3, r4, r5); err != nil {
 			t.Errorf("Fail for err %+v", err)
 		} else {
 			logger.Tf(ctx, "test done with err %+v", err)
@@ -967,6 +1049,14 @@ func TestSlow_SrtPublish_HlsPlay_HEVC_Basic(t *testing.T) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
+	// Start hooks service.
+	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		r5 = hooks.Run(ctx, cancel)
+	}()
+
 	// Start SRS server and wait for it to be ready.
 	svr := NewSRSServer(func(v *srsServer) {
 		v.envs = []string{
@@ -975,11 +1065,14 @@ func TestSlow_SrtPublish_HlsPlay_HEVC_Basic(t *testing.T) {
 			"SRS_VHOST_SRT_ENABLED=on",
 			"SRS_VHOST_SRT_SRT_TO_RTMP=on",
 			"SRS_VHOST_HLS_ENABLED=on",
+			"SRS_VHOST_HTTP_HOOKS_ENABLED=on",
+			fmt.Sprintf("SRS_VHOST_HTTP_HOOKS_ON_PUBLISH=http://localhost:%v/api/v1/publish", hooks.HooksAPI()),
 		}
 	})
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		<-hooks.ReadyCtx().Done()
 		r0 = svr.Run(ctx, cancel)
 	}()
 

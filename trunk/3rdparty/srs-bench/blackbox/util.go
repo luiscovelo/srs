@@ -1177,8 +1177,9 @@ type hooksService struct {
 	httpPort int
 	dispose  func()
 
-	r0         error
-	hooksOnDvr chan HooksEvent
+	r0                 error
+	hooksOnDvr         chan HooksEvent
+	hooksOnPublishData interface{}
 }
 
 func NewHooksService(opts ...func(v *hooksService)) HooksService {
@@ -1197,6 +1198,19 @@ func NewHooksService(opts ...func(v *hooksService)) HooksService {
 	}
 
 	return v
+}
+
+func hooksOnPublishData(data interface{}) func(v *hooksService) {
+	return func(v *hooksService) {
+		v.hooksOnPublishData = data
+	}
+}
+
+func hooksOnPublishFlags(skipDvrAudio, hevcSupported bool) func(v *hooksService) {
+	return hooksOnPublishData(map[string]interface{}{
+		"skip_dvr_audio": skipDvrAudio,
+		"hevc_supported": hevcSupported,
+	})
 }
 
 func (v *hooksService) ReadyCtx() context.Context {
@@ -1220,6 +1234,17 @@ func (v *hooksService) Run(ctx context.Context, cancel context.CancelFunc) error
 	handler := http.ServeMux{}
 	handler.HandleFunc("/api/v1/ping", func(w http.ResponseWriter, r *http.Request) {
 		ohttp.WriteData(ctx, w, r, "pong")
+	})
+
+	handler.HandleFunc("/api/v1/publish", func(w http.ResponseWriter, r *http.Request) {
+		b, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			ohttp.WriteError(ctx, w, r, err)
+			return
+		}
+
+		logger.Tf(ctx, "Callback: Got on_publish request %v", string(b))
+		ohttp.WriteData(ctx, w, r, v.hooksOnPublishData)
 	})
 
 	handler.HandleFunc("/api/v1/dvrs", func(w http.ResponseWriter, r *http.Request) {

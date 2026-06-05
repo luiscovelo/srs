@@ -36,9 +36,9 @@ using namespace std;
 #include <srs_app_rtc_source.hpp>
 #include <srs_app_http_hooks.hpp>
 
-#define CONST_MAX_JITTER_MS         250
-#define CONST_MAX_JITTER_MS_NEG         -250
-#define DEFAULT_FRAME_TIME_MS         10
+#define CONST_MAX_JITTER_MS          500
+#define CONST_MAX_JITTER_MS_NEG     -500
+#define DEFAULT_FRAME_TIME_MS        67
 
 // for 26ms per audio packet,
 // 115 packets is 3s.
@@ -118,7 +118,8 @@ srs_error_t SrsRtmpJitter::correct(SrsSharedPtrMessage* msg, SrsRtmpJitterAlgori
     
     // if jitter detected, reset the delta.
     if (delta < CONST_MAX_JITTER_MS_NEG || delta > CONST_MAX_JITTER_MS) {
-        // use default 10ms to notice the problem of stream.
+        // use default 10ms to notice the problem of stream in the original version
+        // for itb fork, we use 67 because the most of streams works with 7 between 15 fps
         // @see https://github.com/ossrs/srs/issues/425
         delta = DEFAULT_FRAME_TIME_MS;
     }
@@ -2170,6 +2171,11 @@ void SrsLiveSource::update_auth(SrsRequest* r)
     req->update_auth(r);
 }
 
+void SrsLiveSource::update_publish_controls(SrsRequest* r)
+{
+    req->update_publish_controls(r);
+}
+
 bool SrsLiveSource::can_publish(bool is_edge)
 {
     // TODO: FIXME: Should check the status of bridge.
@@ -2426,6 +2432,12 @@ srs_error_t SrsLiveSource::on_video_imp(SrsSharedPtrMessage* msg)
     if (!format_->vcodec) {
         return err;
     }
+
+#ifdef SRS_H265
+    if (!req->hevc_supported && format_->vcodec->id == SrsVideoCodecIdHEVC) {
+        return srs_error_new(ERROR_SYSTEM_PACKET_INVALID, "HEVC is not supported for stream %s", req->get_stream_url().c_str());
+    }
+#endif
     
     // whether consumer should drop for the duplicated sequence header.
     bool drop_for_reduce = false;
@@ -2809,4 +2821,3 @@ string SrsLiveSource::get_curr_origin()
 {
     return play_edge->get_curr_origin();
 }
-

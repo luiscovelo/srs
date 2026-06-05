@@ -1461,6 +1461,8 @@ SrsRequest::SrsRequest()
     duration = -1;
     port = SRS_CONSTS_RTMP_DEFAULT_PORT;
     args = NULL;
+    skip_dvr_audio = true;
+    hevc_supported = false;
 
     protocol = "rtmp";
 }
@@ -1490,6 +1492,8 @@ SrsRequest* SrsRequest::copy()
     if (args) {
         cp->args = args->copy()->to_object();
     }
+    cp->skip_dvr_audio = skip_dvr_audio;
+    cp->hevc_supported = hevc_supported;
 
     cp->protocol = protocol;
     
@@ -1519,10 +1523,15 @@ void SrsRequest::update_auth(SrsRequest* req)
     if (req->args) {
         args = req->args->copy()->to_object();
     }
-
     protocol = req->protocol;
     
     srs_info("update req of soruce for auth ok");
+}
+
+void SrsRequest::update_publish_controls(SrsRequest* req)
+{
+    skip_dvr_audio = req->skip_dvr_audio;
+    hevc_supported = req->hevc_supported;
 }
 
 string SrsRequest::get_stream_url()
@@ -4616,5 +4625,3 @@ srs_error_t SrsUserControlPacket::encode_packet(SrsBuffer* stream)
     
     return err;
 }
-
-

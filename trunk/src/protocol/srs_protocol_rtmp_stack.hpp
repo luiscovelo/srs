@@ -441,6 +441,10 @@ public:
     // used for edge traverse to origin authentication,
     // @see https://github.com/ossrs/srs/issues/104
     SrsAmf0Object* args;
+    // Whether DVR should skip audio packets for this stream.
+    bool skip_dvr_audio;
+    // Whether HEVC video packets are accepted for this stream.
+    bool hevc_supported;
 public:
     SrsRequest();
     virtual ~SrsRequest();
@@ -453,6 +457,8 @@ public:
     // To keep the current request ptr is ok,
     // For many components use the ptr of request.
     virtual void update_auth(SrsRequest* req);
+    // Update controls from on_publish hook after publish ownership is confirmed.
+    virtual void update_publish_controls(SrsRequest* req);
     // Get the stream identify, vhost/app/stream.
     virtual std::string get_stream_url();
     // To strip url, user must strip when update the url.
@@ -1564,4 +1570,3 @@ protected:
 };
 
 #endif
-
