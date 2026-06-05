@@ -1024,6 +1024,8 @@ public:
     virtual bool get_dvr_wait_keyframe(std::string vhost);
     // Get the time_jitter algorithm for dvr.
     virtual int get_dvr_time_jitter(std::string vhost);
+    // Get the app names to ignore audio for dvr.
+    virtual SrsConfDirective* get_dvr_app_name_to_ignore_audio(std::string vhost);
 // http api section
 private:
     // Whether http api enabled
@@ -1146,4 +1148,3 @@ public:
 };
 
 #endif
-

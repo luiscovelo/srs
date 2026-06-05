@@ -3759,6 +3759,17 @@ VOID TEST(ConfigMainTest, CheckVhostConfig5)
         EXPECT_EQ(10*SRS_UTIME_SECONDS, conf.get_dvr_duration("ossrs.net"));
         EXPECT_TRUE(conf.get_dvr_wait_keyframe("ossrs.net"));
         EXPECT_EQ(1, (int)conf.get_dvr_time_jitter("ossrs.net"));
+        EXPECT_TRUE(conf.get_dvr_app_name_to_ignore_audio("ossrs.net") == NULL);
+    }
+
+    if (true) {
+        MockSrsConfig conf;
+        HELPER_ASSERT_SUCCESS(conf.parse(_MIN_OK_CONF "vhost ossrs.net{dvr{dvr_app_name_to_ignore_audio live camera;}}"));
+        SrsConfDirective* apps = conf.get_dvr_app_name_to_ignore_audio("ossrs.net");
+        ASSERT_TRUE(apps != NULL);
+        ASSERT_EQ(2, (int)apps->args.size());
+        EXPECT_STREQ("live", apps->arg0().c_str());
+        EXPECT_STREQ("camera", apps->arg1().c_str());
     }
 
     if (true) {

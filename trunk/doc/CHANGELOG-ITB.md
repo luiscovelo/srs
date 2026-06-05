@@ -5,6 +5,7 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.1, 2026-06-05, Config: Restore parsing compatibility for the legacy DVR `dvr_app_name_to_ignore_audio` directive without wiring it into DVR behavior. Based on upstream v6.0.186.
 * v6.0-itb.1, 2026-06-05, Hooks: Parse `on_publish` JSON response `data.skip_dvr_audio` and `data.hevc_supported` stream controls while preserving the legacy success response body. Based on upstream v6.0.186.
 * v6.0-itb.1, 2026-06-05, RTMP: Propagate publish-time stream controls from the RTMP request into the live source before publisher start. Based on upstream v6.0.186.
 * v6.0-itb.1, 2026-06-05, DVR: Skip DVR audio packets when `skip_dvr_audio` is enabled for the published stream. Based on upstream v6.0.186.
