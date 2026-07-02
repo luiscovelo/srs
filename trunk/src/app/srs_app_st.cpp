@@ -6,6 +6,7 @@
 
 #include <srs_app_st.hpp>
 
+#include <string.h>
 #include <string>
 using namespace std;
 
@@ -241,13 +242,17 @@ void SrsFastCoroutine::stop()
     if (trd) {
         void* res = NULL;
         int r0 = srs_thread_join(trd, &res);
+        int join_errno = errno;
         if (r0) {
+            srs_error("srs_thread_join failed, coroutine=%s, cid=%s, r0=%d, join_errno=%d(%s), stopping_cid=%s, trd=%p",
+                name.c_str(), cid_.c_str(), r0, join_errno, strerror(join_errno), stopping_cid_.c_str(), trd);
+
             // By st_thread_join
-            if (errno == EINVAL) srs_assert(!r0);
-            if (errno == EDEADLK) srs_assert(!r0);
+            if (join_errno == EINVAL) srs_assert(!r0);
+            if (join_errno == EDEADLK) srs_assert(!r0);
             // By st_cond_timedwait
-            if (errno == EINTR) srs_assert(!r0);
-            if (errno == ETIME) srs_assert(!r0);
+            if (join_errno == EINTR) srs_assert(!r0);
+            if (join_errno == ETIME) srs_assert(!r0);
             // Others
             srs_assert(!r0);
         }
