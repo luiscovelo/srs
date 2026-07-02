@@ -17,6 +17,7 @@ using namespace std;
 #include <srs_app_st.hpp>
 #include <srs_protocol_conn.hpp>
 #include <srs_app_conn.hpp>
+#include <srs_protocol_st.hpp>
 #include <srs_protocol_rtmp_stack.hpp>
 
 class MockIDResource : public ISrsResource
@@ -272,6 +273,42 @@ public:
     }
 };
 
+class MockInterruptedJoinHandler : public ISrsCoroutineHandler {
+public:
+    srs_cond_t stopped_cond;
+    bool stopped;
+public:
+    MockInterruptedJoinHandler() : stopped(false) {
+        stopped_cond = srs_cond_new();
+    }
+    virtual ~MockInterruptedJoinHandler() {
+        srs_cond_destroy(stopped_cond);
+    }
+public:
+    virtual srs_error_t cycle() {
+        MockCoroutineHandler child_handler;
+        SrsSTCoroutine child("child", &child_handler);
+        child_handler.trd = &child;
+
+        srs_error_t err = child.start();
+        if (err != srs_success) {
+            return err;
+        }
+
+        srs_cond_timedwait(child_handler.running, 100 * SRS_UTIME_MILLISECONDS);
+
+        // Simulate API kickoff: The publisher coroutine is interrupted before
+        // it enters cleanup and joins another coroutine.
+        srs_thread_interrupt(srs_thread_self());
+        child.stop();
+
+        stopped = true;
+        srs_cond_signal(stopped_cond);
+
+        return srs_success;
+    }
+};
+
 VOID TEST(AppCoroutineTest, SetCidOfCoroutine)
 {
     srs_error_t err = srs_success;
@@ -376,6 +413,26 @@ VOID TEST(AppCoroutineTest, StartStop)
         EXPECT_TRUE(ERROR_THREAD_STARTED == srs_error_code(err));
         srs_freep(err);
     }
+}
+
+VOID TEST(AppCoroutineTest, StopChildWhenCallerInterrupted)
+{
+    srs_error_t err = srs_success;
+
+    MockInterruptedJoinHandler ch;
+    SrsSTCoroutine sc("parent", &ch);
+
+    HELPER_ASSERT_SUCCESS(sc.start());
+
+    if (!ch.stopped) {
+        srs_cond_timedwait(ch.stopped_cond, 1 * SRS_UTIME_SECONDS);
+    }
+    EXPECT_TRUE(ch.stopped);
+
+    sc.stop();
+
+    err = sc.pull();
+    HELPER_EXPECT_SUCCESS(err);
 }
 
 VOID TEST(AppCoroutineTest, Cycle)
