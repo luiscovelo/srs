@@ -5,6 +5,14 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.3, 2026-07-20, DVR/MP4: Finalize DVR sessions without media samples as valid trackless MP4 containers, allowing the temporary file to be renamed and `on_dvr` to run when publishing is rejected before the first accepted packet. Based on upstream v6.0.186.
+* v6.0-itb.3, 2026-07-20, HEVC: Finalize the existing AVC track and complete the DVR hook flow when a publisher changes codec to unsupported HEVC on the same RTMP connection. Based on upstream v6.0.186.
+* v6.0-itb.3, 2026-07-20, Tests: Add MP4 unit and black-box coverage for immediate HEVC rejection, AVC-to-HEVC codec changes, finalized DVR artifacts, and removal of `.mp4.tmp` files. Based on upstream v6.0.186.
+* v6.0-itb.3, 2026-07-20, Benchmark: Add an opt-in in-memory DVR muxer benchmark to compare FLV and MP4 processing, close cost, writes, seeks, and retained MP4 sample metadata. Based on upstream v6.0.186.
+* v6.0-itb.3, 2026-07-20, Fork: Bump the fork display version to `6.0.186-itb.3`. Based on upstream v6.0.186.
+* v6.0-itb.2, 2026-07-02, Coroutine: Retry `srs_thread_join` after `EINTR` during coroutine shutdown instead of asserting, covering cleanup paths where the caller was already interrupted, such as an RTMP client kickoff. Based on upstream v6.0.186.
+* v6.0-itb.2, 2026-07-02, Logs: Report the coroutine identifiers, thread pointer, return value, and saved errno when `srs_thread_join` is interrupted or fails. Based on upstream v6.0.186.
+* v6.0-itb.2, 2026-07-02, Tests: Add unit coverage for stopping a child coroutine from an already interrupted caller. Based on upstream v6.0.186.
 * v6.0-itb.1, 2026-06-05, Config: Restore parsing compatibility for the legacy DVR `dvr_app_name_to_ignore_audio` directive without wiring it into DVR behavior. Based on upstream v6.0.186.
 * v6.0-itb.1, 2026-06-05, Hooks: Parse `on_publish` JSON response `data.skip_dvr_audio` and `data.hevc_supported` stream controls while preserving the legacy success response body. Based on upstream v6.0.186.
 * v6.0-itb.1, 2026-06-05, RTMP: Propagate publish-time stream controls from the RTMP request into the live source before publisher start. Based on upstream v6.0.186.
