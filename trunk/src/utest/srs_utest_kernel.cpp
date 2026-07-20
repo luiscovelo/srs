@@ -5683,6 +5683,58 @@ VOID TEST(KernelMP4Test, CoverMP4All)
 	}
 }
 
+VOID TEST(KernelMP4Test, CoverMP4EmptyFile)
+{
+    srs_error_t err;
+    MockSrsFileWriter f;
+
+    SrsMp4Encoder enc;
+    HELPER_EXPECT_SUCCESS(enc.initialize(&f));
+    HELPER_EXPECT_SUCCESS(enc.flush());
+    EXPECT_GT(f.filesize(), 0);
+
+    SrsMp4BoxReader br;
+    MockSrsFileReader fr((const char*)f.data(), f.filesize());
+    HELPER_EXPECT_SUCCESS(br.initialize(&fr));
+
+    int nb_ftyp = 0;
+    int nb_mdat = 0;
+    int nb_moov = 0;
+    SrsSimpleStream stream;
+
+    for (;;) {
+        SrsMp4Box* box = NULL;
+        err = br.read(&stream, &box);
+        if (err != srs_success) {
+            EXPECT_EQ(ERROR_SYSTEM_FILE_EOF, srs_error_code(err));
+            srs_freep(err);
+            break;
+        }
+
+        if (box->is_ftyp()) {
+            nb_ftyp++;
+        } else if (box->is_mdat()) {
+            nb_mdat++;
+        } else if (box->is_moov()) {
+            nb_moov++;
+            SrsBuffer buffer(stream.bytes(), stream.length());
+            HELPER_EXPECT_SUCCESS(box->decode(&buffer));
+            SrsMp4MovieBox* moov = dynamic_cast<SrsMp4MovieBox*>(box);
+            ASSERT_TRUE(moov != NULL);
+            EXPECT_TRUE(moov->mvhd() != NULL);
+            EXPECT_TRUE(moov->video() == NULL);
+            EXPECT_TRUE(moov->audio() == NULL);
+        }
+
+        HELPER_EXPECT_SUCCESS(br.skip(box, &stream));
+        srs_freep(box);
+    }
+
+    EXPECT_EQ(1, nb_ftyp);
+    EXPECT_EQ(1, nb_mdat);
+    EXPECT_EQ(1, nb_moov);
+}
+
 VOID TEST(KernelMP4Test, CoverMP4CodecSingleFrame)
 {
 	srs_error_t err;
@@ -6227,7 +6279,7 @@ VOID TEST(KernelMP4Test, CoverMP4MultipleAVsWithMp3)
     }
 }
 
-VOID TEST(KernelMP4Test, CoverMP4CodecErrorNoFrames)
+VOID TEST(KernelMP4Test, CoverMP4CodecSequenceHeadersOnly)
 {
 	srs_error_t err;
 
@@ -6260,7 +6312,7 @@ VOID TEST(KernelMP4Test, CoverMP4CodecErrorNoFrames)
             ));
         }
 
-        HELPER_ASSERT_FAILED(enc.flush());
+        HELPER_EXPECT_SUCCESS(enc.flush());
         //mock_print_mp4(string(f.data(), f.filesize()));
     }
 }
