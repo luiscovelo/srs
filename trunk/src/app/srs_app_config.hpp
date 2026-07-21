@@ -1020,6 +1020,8 @@ public:
     virtual std::string get_dvr_plan(std::string vhost);
     // Get the duration of dvr flv.
     virtual srs_utime_t get_dvr_duration(std::string vhost);
+    // Get the inclusive DVR discard threshold in bytes. Zero disables the filter.
+    virtual int64_t get_dvr_min_file_size(std::string vhost);
     // Whether wait keyframe to reap segment.
     virtual bool get_dvr_wait_keyframe(std::string vhost);
     // Get the time_jitter algorithm for dvr.

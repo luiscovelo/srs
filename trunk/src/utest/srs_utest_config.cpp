@@ -1432,6 +1432,16 @@ VOID TEST(ConfigMainTest, CheckConf_vhost_dvr)
 
     if (true) {
         MockSrsConfig conf;
+        HELPER_ASSERT_SUCCESS(conf.parse(_MIN_OK_CONF "vhost v{dvr{dvr_min_file_size 267;}}"));
+    }
+
+    if (true) {
+        MockSrsConfig conf;
+        HELPER_ASSERT_FAILED(conf.parse(_MIN_OK_CONF "vhost v{dvr{dvr_min_file_sizes 267;}}"));
+    }
+
+    if (true) {
+        MockSrsConfig conf;
         HELPER_ASSERT_SUCCESS(conf.parse(_MIN_OK_CONF "vhost v{dvr{dvr_wait_keyframe on;}}"));
     }
 
@@ -2166,9 +2176,11 @@ VOID TEST(ConfigUnitTest, CheckDefaultValuesVhost)
     if (true) {
         HELPER_ASSERT_SUCCESS(conf.parse(_MIN_OK_CONF));
         EXPECT_EQ(30 * SRS_UTIME_SECONDS, conf.get_dvr_duration(""));
+        EXPECT_EQ(0, conf.get_dvr_min_file_size(""));
 
-        HELPER_ASSERT_SUCCESS(conf.parse(_MIN_OK_CONF "vhost v{dvr{dvr_duration 10;}}"));
+        HELPER_ASSERT_SUCCESS(conf.parse(_MIN_OK_CONF "vhost v{dvr{dvr_duration 10;dvr_min_file_size 267;}}"));
         EXPECT_EQ(10 * SRS_UTIME_SECONDS, conf.get_dvr_duration("v"));
+        EXPECT_EQ(267, conf.get_dvr_min_file_size("v"));
     }
 
     if (true) {
@@ -5032,6 +5044,9 @@ VOID TEST(ConfigEnvTest, CheckEnvValuesDvr)
 
         SrsSetEnvConfig(conf, dvr_duration, "SRS_VHOST_DVR_DVR_DURATION", "60");
         EXPECT_EQ(60 * SRS_UTIME_SECONDS, conf.get_dvr_duration("__defaultVhost__"));
+
+        SrsSetEnvConfig(conf, dvr_min_file_size, "SRS_VHOST_DVR_DVR_MIN_FILE_SIZE", "267");
+        EXPECT_EQ(267, conf.get_dvr_min_file_size("__defaultVhost__"));
 
         SrsSetEnvConfig(conf, dvr_wait_keyframe, "SRS_VHOST_DVR_DVR_WAIT_KEYFRAME", "off");
         EXPECT_FALSE(conf.get_dvr_wait_keyframe("__defaultVhost__"));

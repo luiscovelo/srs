@@ -13,6 +13,9 @@ using namespace std;
 #include <srs_app_config.hpp>
 #include <srs_app_dvr.hpp>
 #include <srs_app_http_hooks.hpp>
+#include <srs_kernel_file.hpp>
+#include <srs_kernel_utility.hpp>
+#include <srs_utest_config.hpp>
 
 #include <srs_app_st.hpp>
 #include <srs_protocol_conn.hpp>
@@ -225,6 +228,113 @@ VOID TEST(AppDvrTest, IgnoreAudioByRequest)
     dvr.req = new SrsRequest();
 
     HELPER_EXPECT_SUCCESS(dvr.on_audio(NULL, NULL));
+}
+
+class MockSrsDvrFileSizeConfig
+{
+public:
+    SrsConfig* previous;
+    MockSrsConfig config;
+public:
+    MockSrsDvrFileSizeConfig() {
+        previous = _srs_config;
+        _srs_config = &config;
+    }
+    virtual ~MockSrsDvrFileSizeConfig() {
+        _srs_config = previous;
+    }
+};
+
+class MockSrsDvrFileSizePlan : public SrsDvrPlan
+{
+public:
+    int nb_reaped;
+public:
+    MockSrsDvrFileSizePlan() {
+        nb_reaped = 0;
+    }
+public:
+    virtual srs_error_t on_reap_segment() {
+        nb_reaped++;
+        return srs_success;
+    }
+};
+
+class MockSrsDvrFileSizeSegmenter : public SrsDvrSegmenter
+{
+public:
+    virtual srs_error_t refresh_metadata() {
+        return srs_success;
+    }
+protected:
+    virtual srs_error_t open_encoder() {
+        return srs_success;
+    }
+    virtual srs_error_t encode_metadata(SrsSharedPtrMessage* /*metadata*/) {
+        return srs_success;
+    }
+    virtual srs_error_t encode_audio(SrsSharedPtrMessage* /*audio*/, SrsFormat* /*format*/) {
+        return srs_success;
+    }
+    virtual srs_error_t encode_video(SrsSharedPtrMessage* /*video*/, SrsFormat* /*format*/) {
+        return srs_success;
+    }
+    virtual srs_error_t close_encoder() {
+        return srs_success;
+    }
+};
+
+VOID TEST(AppDvrTest, DiscardFileAtOrBelowConfiguredMinimum)
+{
+    srs_error_t err = srs_success;
+    string path = _srs_tmp_file_prefix + "dvr-min-file-size.flv";
+    string tmp_path = path + ".tmp";
+    ::unlink(path.c_str());
+    ::unlink(tmp_path.c_str());
+
+    MockSrsDvrFileSizeConfig config;
+    SrsSetEnvConfig(config.config, dvr_min_file_size, "SRS_VHOST_DVR_DVR_MIN_FILE_SIZE", "267");
+
+    SrsRequest req;
+    req.vhost = "vhost";
+    req.app = "live";
+    req.stream = "stream";
+
+    MockSrsDvrFileSizePlan plan;
+
+    if (true) {
+        MockSrsDvrFileSizeSegmenter segmenter;
+        segmenter.req = &req;
+        segmenter.plan = &plan;
+        segmenter.fragment->set_path(path);
+
+        HELPER_ASSERT_SUCCESS(segmenter.fs->open(tmp_path));
+        char data[267] = {0};
+        HELPER_ASSERT_SUCCESS(segmenter.fs->write(data, sizeof(data), NULL));
+        HELPER_ASSERT_SUCCESS(segmenter.close());
+
+        EXPECT_FALSE(srs_path_exists(tmp_path));
+        EXPECT_FALSE(srs_path_exists(path));
+        EXPECT_EQ(0, plan.nb_reaped);
+    }
+
+    if (true) {
+        MockSrsDvrFileSizeSegmenter segmenter;
+        segmenter.req = &req;
+        segmenter.plan = &plan;
+        segmenter.fragment->set_path(path);
+
+        HELPER_ASSERT_SUCCESS(segmenter.fs->open(tmp_path));
+        char data[268] = {0};
+        HELPER_ASSERT_SUCCESS(segmenter.fs->write(data, sizeof(data), NULL));
+        HELPER_ASSERT_SUCCESS(segmenter.close());
+
+        EXPECT_FALSE(srs_path_exists(tmp_path));
+        EXPECT_TRUE(srs_path_exists(path));
+        EXPECT_EQ(1, plan.nb_reaped);
+    }
+
+    ::unlink(path.c_str());
 }
 
 class MockCoroutineHandler : public ISrsCoroutineHandler {

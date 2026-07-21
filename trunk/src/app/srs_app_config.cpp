@@ -2604,7 +2604,7 @@ srs_error_t SrsConfig::check_normal_config()
                 for (int j = 0; j < (int)conf->directives.size(); j++) {
                     string m = conf->at(j)->name;
                     if (m != "enabled"  && m != "dvr_apply" && m != "dvr_path" && m != "dvr_plan"
-                        && m != "dvr_duration" && m != "dvr_wait_keyframe" && m != "time_jitter"
+                        && m != "dvr_duration" && m != "dvr_min_file_size" && m != "dvr_wait_keyframe" && m != "time_jitter"
                         && m != "dvr_app_name_to_ignore_audio") {
                         return srs_error_new(ERROR_SYSTEM_CONFIG_INVALID, "illegal vhost.dvr.%s of %s", m.c_str(), vhost->arg0().c_str());
                     }
@@ -7619,6 +7619,29 @@ srs_utime_t SrsConfig::get_dvr_duration(string vhost)
     }
     
     return (srs_utime_t)(::atoi(conf->arg0().c_str()) * SRS_UTIME_SECONDS);
+}
+
+int64_t SrsConfig::get_dvr_min_file_size(string vhost)
+{
+    static int64_t DEFAULT = 0;
+
+    string value = srs_getenv("srs.vhost.dvr.dvr_min_file_size"); // SRS_VHOST_DVR_DVR_MIN_FILE_SIZE
+    if (value.empty()) {
+        SrsConfDirective* conf = get_dvr(vhost);
+        if (!conf) {
+            return DEFAULT;
+        }
+
+        conf = conf->get("dvr_min_file_size");
+        if (!conf || conf->arg0().empty()) {
+            return DEFAULT;
+        }
+
+        value = conf->arg0();
+    }
+
+    int64_t size = ::atoll(value.c_str());
+    return size > 0? size : DEFAULT;
 }
 
 bool SrsConfig::get_dvr_wait_keyframe(string vhost)
