@@ -5,6 +5,10 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.4, 2026-07-21, DVR: Discard finalized DVR files at or below the configured minimum size before the temporary file is renamed, preventing undersized artifacts from triggering `on_dvr`. Based on upstream v6.0.186.
+* v6.0-itb.4, 2026-07-21, Config: Add the `dvr_min_file_size` directive and `SRS_VHOST_DVR_DVR_MIN_FILE_SIZE` override, with a 267-byte threshold in `cloud-storage.conf`. Based on upstream v6.0.186.
+* v6.0-itb.4, 2026-07-21, Tests: Add unit coverage for configuration parsing, environment overrides, inclusive DVR size filtering, file removal, and callback suppression. Based on upstream v6.0.186.
+* v6.0-itb.4, 2026-07-21, Fork: Bump the fork display version to `6.0.186-itb.4`. Based on upstream v6.0.186.
 * v6.0-itb.3, 2026-07-20, DVR/MP4: Finalize DVR sessions without media samples as valid trackless MP4 containers, allowing the temporary file to be renamed and `on_dvr` to run when publishing is rejected before the first accepted packet. Based on upstream v6.0.186.
 * v6.0-itb.3, 2026-07-20, HEVC: Finalize the existing AVC track and complete the DVR hook flow when a publisher changes codec to unsupported HEVC on the same RTMP connection. Based on upstream v6.0.186.
 * v6.0-itb.3, 2026-07-20, Tests: Add MP4 unit and black-box coverage for immediate HEVC rejection, AVC-to-HEVC codec changes, finalized DVR artifacts, and removal of `.mp4.tmp` files. Based on upstream v6.0.186.
