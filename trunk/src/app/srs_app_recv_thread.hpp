@@ -136,6 +136,8 @@ private:
     int64_t _nb_msgs;
     // The video frames we got.
     uint64_t video_frames;
+    // Last RTMP audio/video message arrival, using a monotonic clock.
+    int64_t last_media_arrived_at_us_;
     // For mr(merged read),
     bool mr;
     int mr_fd;
@@ -210,4 +212,3 @@ public:
 };
 
 #endif
-

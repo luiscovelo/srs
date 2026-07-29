@@ -18,11 +18,32 @@
 #include <srs_core_autofree.hpp>
 #include <srs_app_statistic.hpp>
 
+#include <chrono>
 #include <sys/socket.h>
 using namespace std;
 
 // the max small bytes to group
 #define SRS_MR_SMALL_BYTES 4096
+
+// Report an input gap only when it is strictly greater than one second.
+#define SRS_RTMP_RECV_GAP_WARN (1 * SRS_UTIME_SECONDS)
+
+static int64_t srs_rtmp_recv_monotonic_time_us()
+{
+    return chrono::duration_cast<chrono::microseconds>(
+        chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+static const char* srs_rtmp_media_type(int8_t message_type)
+{
+    if (message_type == RTMP_MSG_AudioMessage) {
+        return "audio";
+    }
+    if (message_type == RTMP_MSG_VideoMessage) {
+        return "video";
+    }
+    return "other";
+}
 
 ISrsMessageConsumer::ISrsMessageConsumer()
 {
@@ -271,6 +292,7 @@ SrsPublishRecvThread::SrsPublishRecvThread(SrsRtmpServer* rtmp_sdk, SrsRequest* 
     recv_error = srs_success;
     _nb_msgs = 0;
     video_frames = 0;
+    last_media_arrived_at_us_ = 0;
     error = srs_cond_new();
 
     req = _req;
@@ -363,6 +385,24 @@ srs_error_t SrsPublishRecvThread::consume(SrsCommonMessage* msg)
     
     if (msg->header.is_video()) {
         video_frames++;
+    }
+
+    // Diagnose a complete media gap before any source or DVR timestamp
+    // correction is applied. RTMP control messages do not reset this clock.
+    if (msg->header.is_audio() || msg->header.is_video()) {
+        int64_t arrived_at_us = srs_rtmp_recv_monotonic_time_us();
+        int64_t media_gap_us = last_media_arrived_at_us_? arrived_at_us - last_media_arrived_at_us_ : 0;
+        bool media_gap = last_media_arrived_at_us_ && media_gap_us > SRS_RTMP_RECV_GAP_WARN;
+
+        if (media_gap) {
+            srs_warn("RTMP publisher media gap: vhost=%s, stream=/%s/%s, ip=%s, "
+                "no_media=%.3fs, resumed_with=%s",
+                req->vhost.c_str(), req->app.c_str(), req->stream.c_str(), req->ip.c_str(),
+                (double)media_gap_us / SRS_UTIME_SECONDS,
+                srs_rtmp_media_type(msg->header.message_type));
+        }
+
+        last_media_arrived_at_us_ = arrived_at_us;
     }
     
     // log to show the time of recv thread.
@@ -585,4 +625,3 @@ srs_error_t SrsHttpRecvThread::cycle()
     
     return err;
 }
-

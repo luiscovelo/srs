@@ -115,9 +115,16 @@ srs_error_t SrsRtmpJitter::correct(SrsSharedPtrMessage* msg, SrsRtmpJitterAlgori
      */
     int64_t time = msg->timestamp;
     int64_t delta = time - last_pkt_time;
+    bool initialized = last_pkt_correct_time >= 0;
     
     // if jitter detected, reset the delta.
     if (delta < CONST_MAX_JITTER_MS_NEG || delta > CONST_MAX_JITTER_MS) {
+        if (initialized) {
+            srs_warn("RTMP jitter detected: type=%s, timestamp=%" PRId64 "ms, "
+                "last_pkt_time=%" PRId64 "ms, delta=%" PRId64 "ms",
+                msg->is_audio()? "audio" : "video", time, last_pkt_time, delta);
+        }
+
         // use default 10ms to notice the problem of stream in the original version
         // for itb fork, we use 67 because the most of streams works with 7 between 15 fps
         // @see https://github.com/ossrs/srs/issues/425
