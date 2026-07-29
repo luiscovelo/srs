@@ -5,6 +5,9 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.5, 2026-07-29, Logs: Report RTMP publisher media arrival gaps greater than one second with the affected vhost, stream, publisher IP, gap duration, and packet type that resumed the stream. Based on upstream v6.0.186.
+* v6.0-itb.5, 2026-07-29, Jitter: Emit a warning when RTMP timestamp jitter correction is applied, including the packet type, received timestamp, previous packet timestamp, and detected delta. Based on upstream v6.0.186.
+* v6.0-itb.5, 2026-07-29, Fork: Bump the fork display version to `6.0.186-itb.5`. Based on upstream v6.0.186.
 * v6.0-itb.4, 2026-07-21, DVR: Discard finalized DVR files at or below the configured minimum size before the temporary file is renamed, preventing undersized artifacts from triggering `on_dvr`. Based on upstream v6.0.186.
 * v6.0-itb.4, 2026-07-21, Config: Add the `dvr_min_file_size` directive and `SRS_VHOST_DVR_DVR_MIN_FILE_SIZE` override, with a 267-byte threshold in `cloud-storage.conf`. Based on upstream v6.0.186.
 * v6.0-itb.4, 2026-07-21, Tests: Add unit coverage for configuration parsing, environment overrides, inclusive DVR size filtering, file removal, and callback suppression. Based on upstream v6.0.186.
