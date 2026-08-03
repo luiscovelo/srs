@@ -5,6 +5,10 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.6, 2026-08-03, Hooks: Include the RTMP unpublish reason, numeric error code, error name, and summary in the `on_unpublish` payload while preserving the existing SRT and WebRTC payloads. Based on upstream v6.0.186.
+* v6.0-itb.6, 2026-08-03, RTMP: Distinguish HTTP API kickoff from generic coroutine interruption and classify timeout, idle kickoff, client disconnect, client unpublish, interruption, and publish-error teardown paths. Based on upstream v6.0.186.
+* v6.0-itb.6, 2026-08-03, Logs: Include the classified RTMP unpublish reason in successful `on_unpublish` HTTP hook traces. Based on upstream v6.0.186.
+* v6.0-itb.6, 2026-08-03, Fork: Bump the fork display version to `6.0.186-itb.6`. Based on upstream v6.0.186.
 * v6.0-itb.5, 2026-07-29, Logs: Report RTMP publisher media arrival gaps greater than one second with the affected vhost, stream, publisher IP, gap duration, and packet type that resumed the stream. Based on upstream v6.0.186.
 * v6.0-itb.5, 2026-07-29, Jitter: Emit a warning when RTMP timestamp jitter correction is applied, including the packet type, received timestamp, previous packet timestamp, and detected delta. Based on upstream v6.0.186.
 * v6.0-itb.5, 2026-07-29, Fork: Bump the fork display version to `6.0.186-itb.5`. Based on upstream v6.0.186.
