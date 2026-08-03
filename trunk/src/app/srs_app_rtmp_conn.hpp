@@ -100,6 +100,8 @@ private:
     srs_utime_t publish_normal_timeout;
     // Whether enable the tcp_nodelay.
     bool tcp_nodelay;
+    // Whether the connection was interrupted by the HTTP API kickoff.
+    bool kickoff_by_api_;
     // About the rtmp client.
     SrsClientInfo* info;
 private:
@@ -167,7 +169,7 @@ private:
     virtual srs_error_t http_hooks_on_connect();
     virtual void http_hooks_on_close();
     virtual srs_error_t http_hooks_on_publish();
-    virtual void http_hooks_on_unpublish();
+    virtual void http_hooks_on_unpublish(srs_error_t err);
     virtual srs_error_t http_hooks_on_play();
     virtual void http_hooks_on_stop();
 // Extract APIs from SrsTcpConnection.
@@ -197,4 +199,3 @@ public:
 };
 
 #endif
-

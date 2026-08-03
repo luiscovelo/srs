@@ -45,6 +45,10 @@ public:
     // @param url the api server url, to process the event.
     //         ignore if empty.
     static void on_unpublish(std::string url, SrsRequest* req);
+    // The RTMP on_unpublish hook with the context that stopped publishing.
+    // Other protocols keep using the overload above and preserve their payload.
+    static void on_unpublish(std::string url, SrsRequest* req, std::string reason,
+        int error_code, std::string error_name, std::string error_detail);
     // The on_play hook, when client start to play stream.
     // @param url the api server url, to valid the client.
     //         ignore if empty.

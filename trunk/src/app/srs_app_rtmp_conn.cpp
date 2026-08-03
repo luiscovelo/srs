@@ -56,6 +56,34 @@ using namespace std;
 // when edge timeout, retry next.
 #define SRS_EDGE_TOKEN_TRAVERSE_TIMEOUT (3 * SRS_UTIME_SECONDS)
 
+static string srs_rtmp_unpublish_reason(srs_error_t err, bool kickoff_by_api)
+{
+    if (kickoff_by_api) {
+        return "kickoff";
+    }
+
+    if (err == srs_success) {
+        return "unknown";
+    }
+
+    if (srs_is_client_gracefully_close(err)) {
+        return "client_disconnect";
+    }
+
+    switch (srs_error_code(err)) {
+        case ERROR_KICKOFF_FOR_IDLE:
+            return "idle_kickoff";
+        case ERROR_SOCKET_TIMEOUT:
+            return "timeout";
+        case ERROR_CONTROL_REPUBLISH:
+            return "client_unpublish";
+        case ERROR_THREAD_INTERRUPED:
+            return "interrupted";
+        default:
+            return "publish_error";
+    }
+}
+
 SrsSimpleRtmpClient::SrsSimpleRtmpClient(string u, srs_utime_t ctm, srs_utime_t stm) : SrsBasicRtmpClient(u, ctm, stm)
 {
 }
@@ -129,6 +157,7 @@ SrsRtmpConn::SrsRtmpConn(SrsServer* svr, srs_netfd_t c, string cip, int cport)
 
     publish_1stpkt_timeout = 0;
     publish_normal_timeout = 0;
+    kickoff_by_api_ = false;
     
     _srs_config->subscribe(this);
 }
@@ -959,7 +988,7 @@ srs_error_t SrsRtmpConn::publishing(SrsSharedPtr<SrsLiveSource> source)
     // is not published by this session.
     if (acquire_err == srs_success) {
         release_publish(source);
-        http_hooks_on_unpublish();
+        http_hooks_on_unpublish(err);
     }
     
     return err;
@@ -1506,7 +1535,7 @@ srs_error_t SrsRtmpConn::http_hooks_on_publish()
     return err;
 }
 
-void SrsRtmpConn::http_hooks_on_unpublish()
+void SrsRtmpConn::http_hooks_on_unpublish(srs_error_t err)
 {
     SrsRequest* req = info->req;
     
@@ -1528,10 +1557,15 @@ void SrsRtmpConn::http_hooks_on_unpublish()
         
         hooks = conf->args;
     }
+
+    string reason = srs_rtmp_unpublish_reason(err, kickoff_by_api_);
+    int error_code = srs_error_code(err);
+    string error_name = srs_error_code_str(err);
+    string error_detail = srs_error_summary(err);
     
     for (int i = 0; i < (int)hooks.size(); i++) {
         std::string url = hooks.at(i);
-        SrsHttpHooks::on_unpublish(url, req);
+        SrsHttpHooks::on_unpublish(url, req, reason, error_code, error_name, error_detail);
     }
 }
 
@@ -1676,5 +1710,6 @@ const SrsContextId& SrsRtmpConn::get_id()
 
 void SrsRtmpConn::expire()
 {
+    kickoff_by_api_ = true;
     trd->interrupt();
 }
