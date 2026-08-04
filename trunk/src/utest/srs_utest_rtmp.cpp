@@ -10,6 +10,7 @@
 #include <srs_protocol_utility.hpp>
 #include <srs_protocol_rtmp_msg_array.hpp>
 #include <srs_protocol_rtmp_stack.hpp>
+#include <srs_protocol_stream.hpp>
 #include <srs_kernel_utility.hpp>
 #include <srs_app_st.hpp>
 #include <srs_protocol_amf0.hpp>
@@ -2848,6 +2849,42 @@ public:
     }
 };
 
+class MockRTMPReadObserver : public ISrsReadObserver
+{
+public:
+    int reads;
+    int64_t bytes;
+public:
+    MockRTMPReadObserver() : reads(0), bytes(0) {
+    }
+    virtual void on_socket_read(ssize_t nread, srs_utime_t /*duration*/) {
+        reads++;
+        bytes += nread;
+    }
+};
+
+VOID TEST(ProtocolRTMPTest, ReadObserver)
+{
+    srs_error_t err;
+
+    MockBufferIO io;
+    SrsRtmpServer r(&io);
+
+    SrsConnectAppPacket* res = new SrsConnectAppPacket();
+    HELPER_EXPECT_SUCCESS(r.send_and_free_packet(res, 0));
+    io.in_buffer.append(&io.out_buffer);
+
+    MockRTMPReadObserver observer;
+    r.set_read_observer(&observer);
+
+    SrsCommonMessage* msg = NULL;
+    HELPER_EXPECT_SUCCESS(r.recv_message(&msg));
+    SrsUniquePtr<SrsCommonMessage> msg_uptr(msg);
+
+    EXPECT_TRUE(observer.reads > 0);
+    EXPECT_TRUE(observer.bytes > 0);
+}
+
 VOID TEST(ProtocolRTMPTest, MergeReadHandler)
 {
     srs_error_t err;
@@ -3617,4 +3654,3 @@ VOID TEST(ProtocolRTMPTest, DiscoveryUrl)
         EXPECT_STREQ("?k=v", param.c_str());
     }
 }
-

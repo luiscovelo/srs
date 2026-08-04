@@ -277,6 +277,11 @@ srs_error_t SrsProtocol::manual_response_flush()
     return err;
 }
 
+void SrsProtocol::set_read_observer(ISrsReadObserver* observer)
+{
+    in_buffer->set_read_observer(observer);
+}
+
 #ifdef SRS_PERF_MERGED_READ
 void SrsProtocol::set_merge_read(bool v, IMergeReadHandler* handler)
 {
@@ -2156,6 +2161,11 @@ uint32_t SrsRtmpServer::proxy_real_ip()
 void SrsRtmpServer::set_auto_response(bool v)
 {
     protocol->set_auto_response(v);
+}
+
+void SrsRtmpServer::set_read_observer(ISrsReadObserver* observer)
+{
+    protocol->set_read_observer(observer);
 }
 
 #ifdef SRS_PERF_MERGED_READ

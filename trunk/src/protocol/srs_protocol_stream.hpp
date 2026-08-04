@@ -13,6 +13,17 @@
 #include <srs_core_performance.hpp>
 #include <srs_kernel_stream.hpp>
 
+// Observe successful reads used to refill a fast stream buffer.
+// The observer must be passive and must not yield or block.
+class ISrsReadObserver
+{
+public:
+    ISrsReadObserver();
+    virtual ~ISrsReadObserver();
+public:
+    virtual void on_socket_read(ssize_t nread, srs_utime_t duration) = 0;
+};
+
 #ifdef SRS_PERF_MERGED_READ
 /**
  * to improve read performance, merge some packets then read,
@@ -49,6 +60,8 @@ public:
 class SrsFastStream
 {
 private:
+    // Optional passive observer for actual reader refills.
+    ISrsReadObserver* read_observer_;
 #ifdef SRS_PERF_MERGED_READ
     // the merged handler
     bool merged_read;
@@ -119,6 +132,8 @@ public:
      */
     virtual srs_error_t grow(ISrsReader* reader, int required_size);
 public:
+    // Observe actual reader refills. NULL disables observation.
+    virtual void set_read_observer(ISrsReadObserver* observer);
 #ifdef SRS_PERF_MERGED_READ
     /**
      * to improve read performance, merge some packets then read,

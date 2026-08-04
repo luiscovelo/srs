@@ -24,6 +24,7 @@
 #include <srs_kernel_flv.hpp>
 
 class SrsFastStream;
+class ISrsReadObserver;
 class SrsBuffer;
 class SrsAmf0Any;
 class SrsMessageHeader;
@@ -211,6 +212,8 @@ public:
     // need to call this api(the protocol sdk will auto send message).
     // @see the auto_response_when_recv and manual_response_queue.
     virtual srs_error_t manual_response_flush();
+    // Observe actual reads used to refill the RTMP input buffer.
+    virtual void set_read_observer(ISrsReadObserver* observer);
 public:
 #ifdef SRS_PERF_MERGED_READ
     // To improve read performance, merge some packets then read,
@@ -638,6 +641,8 @@ public:
     // Set the auto response message when recv for protocol stack.
     // @param v, whether auto response message when recv message.
     virtual void set_auto_response(bool v);
+    // Observe actual reads used to refill the RTMP input buffer.
+    virtual void set_read_observer(ISrsReadObserver* observer);
 #ifdef SRS_PERF_MERGED_READ
     // To improve read performance, merge some packets then read,
     // When it on and read small bytes, we sleep to wait more data.,

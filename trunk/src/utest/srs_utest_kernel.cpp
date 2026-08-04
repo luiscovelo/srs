@@ -608,6 +608,43 @@ VOID TEST(KernelFastBufferTest, Grow)
     }
 }
 
+class MockFastStreamReadObserver : public ISrsReadObserver
+{
+public:
+    int reads;
+    int64_t bytes;
+    srs_utime_t duration;
+public:
+    MockFastStreamReadObserver() : reads(0), bytes(0), duration(0) {
+    }
+    virtual void on_socket_read(ssize_t nread, srs_utime_t elapsed) {
+        reads++;
+        bytes += nread;
+        duration += elapsed;
+    }
+};
+
+VOID TEST(KernelFastBufferTest, ReadObserver)
+{
+    srs_error_t err;
+
+    SrsFastStream b(5);
+    MockBufferReader r("Hello, world!");
+    MockFastStreamReadObserver observer;
+    b.set_read_observer(&observer);
+
+    HELPER_ASSERT_SUCCESS(b.grow(&r, 5));
+    EXPECT_EQ(1, observer.reads);
+    EXPECT_EQ(5, observer.bytes);
+    EXPECT_GE(observer.duration, 0);
+
+    b.skip(5);
+    b.set_read_observer(NULL);
+    HELPER_ASSERT_SUCCESS(b.grow(&r, 1));
+    EXPECT_EQ(1, observer.reads);
+    EXPECT_EQ(5, observer.bytes);
+}
+
 /**
 * test the codec,
 * whether H.264 keyframe
