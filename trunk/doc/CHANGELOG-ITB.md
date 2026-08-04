@@ -5,6 +5,10 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.7, 2026-08-04, RTMP: Add a passive socket-read observer during publishing to attribute media ingest stalls between time spent waiting in input reads and time spent elsewhere in the server path. Based on upstream v6.0.186.
+* v6.0-itb.7, 2026-08-04, Logs: Replace the RTMP publisher media-gap warning with `RTMP media ingest stall`, including elapsed, socket-wait and server time, socket read and byte counts, and the previous and resumed media types and timestamps. Based on upstream v6.0.186.
+* v6.0-itb.7, 2026-08-04, Tests: Add unit coverage for fast-buffer read observation, observer removal, and RTMP protocol observer forwarding. Based on upstream v6.0.186.
+* v6.0-itb.7, 2026-08-04, Fork: Bump the fork display version to `6.0.186-itb.7`. Based on upstream v6.0.186.
 * v6.0-itb.6, 2026-08-03, Hooks: Include the RTMP unpublish reason, numeric error code, error name, and summary in the `on_unpublish` payload while preserving the existing SRT and WebRTC payloads. Based on upstream v6.0.186.
 * v6.0-itb.6, 2026-08-03, RTMP: Distinguish HTTP API kickoff from generic coroutine interruption and classify timeout, idle kickoff, client disconnect, client unpublish, interruption, and publish-error teardown paths. Based on upstream v6.0.186.
 * v6.0-itb.6, 2026-08-03, Logs: Include the classified RTMP unpublish reason in successful `on_unpublish` HTTP hook traces. Based on upstream v6.0.186.
