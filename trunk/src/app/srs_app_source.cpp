@@ -119,7 +119,10 @@ srs_error_t SrsRtmpJitter::correct(SrsSharedPtrMessage* msg, SrsRtmpJitterAlgori
     
     // if jitter detected, reset the delta.
     if (delta < CONST_MAX_JITTER_MS_NEG || delta > CONST_MAX_JITTER_MS) {
-        if (initialized) {
+        // A fresh DVR/consumer jitter context may receive a cached sequence
+        // header at timestamp zero before the current media packet. Keep the
+        // correction, but do not report that transition as publisher jitter.
+        if (initialized && last_pkt_time != 0) {
             srs_warn("RTMP jitter detected: type=%s, timestamp=%" PRId64 "ms, "
                 "last_pkt_time=%" PRId64 "ms, delta=%" PRId64 "ms",
                 msg->is_audio()? "audio" : "video", time, last_pkt_time, delta);

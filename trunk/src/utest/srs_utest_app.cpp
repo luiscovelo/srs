@@ -13,7 +13,10 @@ using namespace std;
 #include <srs_app_config.hpp>
 #include <srs_app_dvr.hpp>
 #include <srs_app_http_hooks.hpp>
+#include <srs_app_source.hpp>
 #include <srs_kernel_file.hpp>
+#include <srs_kernel_flv.hpp>
+#include <srs_kernel_log.hpp>
 #include <srs_kernel_utility.hpp>
 #include <srs_utest_config.hpp>
 
@@ -22,6 +25,71 @@ using namespace std;
 #include <srs_app_conn.hpp>
 #include <srs_protocol_st.hpp>
 #include <srs_protocol_rtmp_stack.hpp>
+
+class MockCountingLog : public ISrsLog
+{
+public:
+    int warns;
+public:
+    MockCountingLog() {
+        warns = 0;
+    }
+    virtual ~MockCountingLog() {
+    }
+public:
+    virtual srs_error_t initialize() {
+        return srs_success;
+    }
+    virtual void reopen() {
+    }
+    virtual void log(SrsLogLevel level, const char* /*tag*/, const SrsContextId& /*context_id*/, const char* /*fmt*/, va_list /*args*/) {
+        if (level == SrsLogLevelWarn) {
+            warns++;
+        }
+    }
+};
+
+class MockLogGuard
+{
+private:
+    ISrsLog* previous_;
+public:
+    MockLogGuard(ISrsLog* replacement) {
+        previous_ = _srs_log;
+        _srs_log = replacement;
+    }
+    virtual ~MockLogGuard() {
+        _srs_log = previous_;
+    }
+};
+
+VOID TEST(AppRtmpJitterTest, SuppressZeroLastPacketWarning)
+{
+    srs_error_t err = srs_success;
+    MockCountingLog log;
+    MockLogGuard guard(&log);
+    SrsRtmpJitter jitter;
+
+    SrsMessageHeader header;
+    header.initialize_video(0, 0, 1);
+    SrsSharedPtrMessage sequence_header;
+    HELPER_EXPECT_SUCCESS(sequence_header.create(&header, NULL, 0));
+    HELPER_EXPECT_SUCCESS(jitter.correct(&sequence_header, SrsRtmpJitterAlgorithmFULL));
+
+    header.initialize_video(0, 62937513, 1);
+    SrsSharedPtrMessage current_packet;
+    HELPER_EXPECT_SUCCESS(current_packet.create(&header, NULL, 0));
+    HELPER_EXPECT_SUCCESS(jitter.correct(&current_packet, SrsRtmpJitterAlgorithmFULL));
+    EXPECT_EQ(0, log.warns);
+    EXPECT_EQ(67, current_packet.timestamp);
+
+    header.initialize_video(0, 62938513, 1);
+    SrsSharedPtrMessage real_jitter;
+    HELPER_EXPECT_SUCCESS(real_jitter.create(&header, NULL, 0));
+    HELPER_EXPECT_SUCCESS(jitter.correct(&real_jitter, SrsRtmpJitterAlgorithmFULL));
+    EXPECT_EQ(1, log.warns);
+    EXPECT_EQ(134, real_jitter.timestamp);
+}
 
 class MockIDResource : public ISrsResource
 {
