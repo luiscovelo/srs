@@ -63,6 +63,16 @@ int srs_time_jitter_string2int(std::string time_jitter)
 
 SrsRtmpJitter::SrsRtmpJitter()
 {
+    scope = "unknown";
+    last_pkt_correct_time = -1;
+    last_pkt_time = 0;
+}
+
+SrsRtmpJitter::SrsRtmpJitter(const string& app, const string& stream, const string& scope)
+{
+    this->app = app;
+    this->stream = stream;
+    this->scope = scope;
     last_pkt_correct_time = -1;
     last_pkt_time = 0;
 }
@@ -123,9 +133,10 @@ srs_error_t SrsRtmpJitter::correct(SrsSharedPtrMessage* msg, SrsRtmpJitterAlgori
         // header at timestamp zero before the current media packet. Keep the
         // correction, but do not report that transition as publisher jitter.
         if (initialized && last_pkt_time != 0) {
-            srs_warn("RTMP jitter detected: type=%s, timestamp=%" PRId64 "ms, "
+            srs_warn("RTMP jitter detected: app=%s, stream=%s, scope=%s, type=%s, timestamp=%" PRId64 "ms, "
                 "last_pkt_time=%" PRId64 "ms, delta=%" PRId64 "ms",
-                msg->is_audio()? "audio" : "video", time, last_pkt_time, delta);
+                app.c_str(), stream.c_str(), scope.c_str(), msg->is_audio()? "audio" : "video",
+                time, last_pkt_time, delta);
         }
 
         // use default 10ms to notice the problem of stream in the original version
@@ -416,11 +427,11 @@ ISrsWakable::~ISrsWakable()
 {
 }
 
-SrsLiveConsumer::SrsLiveConsumer(SrsLiveSource* s)
+SrsLiveConsumer::SrsLiveConsumer(SrsLiveSource* s, const string& app, const string& stream)
 {
     source_ = s;
     paused = false;
-    jitter = new SrsRtmpJitter();
+    jitter = new SrsRtmpJitter(app, stream, "consumer");
     queue = new SrsMessageQueue();
     should_update_source_id = false;
     
@@ -2712,7 +2723,7 @@ srs_error_t SrsLiveSource::create_consumer(SrsLiveConsumer*& consumer)
         }
     }
 
-    consumer = new SrsLiveConsumer(this);
+    consumer = new SrsLiveConsumer(this, req->app, req->stream);
     consumers.push_back(consumer);
 
     // There are more than one consumer, so reset the timeout.

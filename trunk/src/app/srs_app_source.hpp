@@ -64,10 +64,14 @@ int srs_time_jitter_string2int(std::string time_jitter);
 class SrsRtmpJitter
 {
 private:
+    std::string app;
+    std::string stream;
+    std::string scope;
     int64_t last_pkt_time;
     int64_t last_pkt_correct_time;
 public:
     SrsRtmpJitter();
+    SrsRtmpJitter(const std::string& app, const std::string& stream, const std::string& scope);
     virtual ~SrsRtmpJitter();
 public:
     // detect the time jitter and correct it.
@@ -186,7 +190,7 @@ private:
     srs_utime_t mw_duration;
 #endif
 public:
-    SrsLiveConsumer(SrsLiveSource* s);
+    SrsLiveConsumer(SrsLiveSource* s, const std::string& app, const std::string& stream);
     virtual ~SrsLiveConsumer();
 public:
     // Set the size of queue.

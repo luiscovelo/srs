@@ -5,6 +5,8 @@
 //
 #include <srs_utest_app.hpp>
 
+#include <stdio.h>
+
 using namespace std;
 
 #include <srs_kernel_error.hpp>
@@ -30,6 +32,7 @@ class MockCountingLog : public ISrsLog
 {
 public:
     int warns;
+    string last_warn;
 public:
     MockCountingLog() {
         warns = 0;
@@ -42,9 +45,13 @@ public:
     }
     virtual void reopen() {
     }
-    virtual void log(SrsLogLevel level, const char* /*tag*/, const SrsContextId& /*context_id*/, const char* /*fmt*/, va_list /*args*/) {
+    virtual void log(SrsLogLevel level, const char* /*tag*/, const SrsContextId& /*context_id*/, const char* fmt, va_list args) {
         if (level == SrsLogLevelWarn) {
             warns++;
+
+            char message[1024];
+            vsnprintf(message, sizeof(message), fmt, args);
+            last_warn = message;
         }
     }
 };
@@ -68,7 +75,7 @@ VOID TEST(AppRtmpJitterTest, SuppressZeroLastPacketWarning)
     srs_error_t err = srs_success;
     MockCountingLog log;
     MockLogGuard guard(&log);
-    SrsRtmpJitter jitter;
+    SrsRtmpJitter jitter("live", "camera01", "consumer");
 
     SrsMessageHeader header;
     header.initialize_video(0, 0, 1);
@@ -88,6 +95,9 @@ VOID TEST(AppRtmpJitterTest, SuppressZeroLastPacketWarning)
     HELPER_EXPECT_SUCCESS(real_jitter.create(&header, NULL, 0));
     HELPER_EXPECT_SUCCESS(jitter.correct(&real_jitter, SrsRtmpJitterAlgorithmFULL));
     EXPECT_EQ(1, log.warns);
+    EXPECT_NE(string::npos, log.last_warn.find("app=live"));
+    EXPECT_NE(string::npos, log.last_warn.find("stream=camera01"));
+    EXPECT_NE(string::npos, log.last_warn.find("scope=consumer"));
     EXPECT_EQ(134, real_jitter.timestamp);
 }
 

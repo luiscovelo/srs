@@ -90,7 +90,7 @@ srs_error_t SrsDvrSegmenter::open()
     
     // create jitter.
     srs_freep(jitter);
-    jitter = new SrsRtmpJitter();
+    jitter = new SrsRtmpJitter(req->app, req->stream, "dvr");
     
     // open file writer, in append or create mode.
     string tmp_dvr_file = fragment->tmppath();
