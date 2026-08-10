@@ -5,6 +5,9 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.9, 2026-08-10, Logs: Include the application, stream name, and processing scope (`consumer` or `dvr`) in `RTMP jitter detected` warnings. Based on upstream v6.0.186.
+* v6.0-itb.9, 2026-08-10, Tests: Verify that RTMP jitter warnings carry the configured application, stream, and consumer scope while preserving zero-timestamp warning suppression. Based on upstream v6.0.186.
+* v6.0-itb.9, 2026-08-10, Fork: Bump the fork display version to `6.0.186-itb.9`. Based on upstream v6.0.186.
 * v6.0-itb.8, 2026-08-07, Jitter: Suppress false `RTMP jitter detected` warnings when a fresh DVR or consumer context transitions from a cached zero-timestamp sequence header to current media, while preserving timestamp correction. Based on upstream v6.0.186.
 * v6.0-itb.8, 2026-08-07, Tests: Add unit coverage for zero-timestamp warning suppression and continued reporting of subsequent timestamp discontinuities. Based on upstream v6.0.186.
 * v6.0-itb.8, 2026-08-07, Fork: Bump the fork display version to `6.0.186-itb.8`. Based on upstream v6.0.186.
