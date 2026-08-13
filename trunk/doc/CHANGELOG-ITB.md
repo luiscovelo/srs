@@ -5,6 +5,15 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.10, 2026-08-13, Upstream: Sync the fork base from SRS v6.0.186 to the v6.0-r1 release at v6.0.191. Based on upstream v6.0.191.
+* v6.0-itb.10, 2026-08-13, WebRTC/TCP: Reject a duplicate TCP owner before replacing the active session and safely handle teardown without an owner. Based on upstream v6.0.191.
+* v6.0-itb.10, 2026-08-13, SDP: Terminate `a=ssrc-group` lines with CRLF so the following SDP attribute is not concatenated. Based on upstream v6.0.191.
+* v6.0-itb.10, 2026-08-13, DVR/MP4: Preserve zero-duration STTS entries for repeated-DTS H.264 samples so MP4 timing and duration remain correct. Based on upstream v6.0.191.
+* v6.0-itb.10, 2026-08-13, RTC2RTMP: Suppress repeated byte-identical AVC sequence headers while preserving keyframes, changed headers, and headers after republishing. Based on upstream v6.0.191.
+* v6.0-itb.10, 2026-08-13, Metrics: Exclude graceful RTMP, HTTP, and SRT disconnects from `srs_clients_errs_total` while retaining genuine client errors. Based on upstream v6.0.191.
+* v6.0-itb.10, 2026-08-13, Tests: Add regression coverage for SDP line termination, repeated-DTS MP4 timing, RTC-to-RTMP AVC header deduplication, and graceful disconnect metrics. Based on upstream v6.0.191.
+* v6.0-itb.10, 2026-08-13, Release: Adopt the v6.0-r1 release metadata and updated GitHub Actions and asset-upload workflow. Based on upstream v6.0.191.
+* v6.0-itb.10, 2026-08-13, Fork: Bump the fork display version to `6.0.191-itb.10`. Based on upstream v6.0.191.
 * v6.0-itb.9, 2026-08-10, Logs: Include the application, stream name, and processing scope (`consumer` or `dvr`) in `RTMP jitter detected` warnings. Based on upstream v6.0.186.
 * v6.0-itb.9, 2026-08-10, Tests: Verify that RTMP jitter warnings carry the configured application, stream, and consumer scope while preserving zero-timestamp warning suppression. Based on upstream v6.0.186.
 * v6.0-itb.9, 2026-08-10, Fork: Bump the fork display version to `6.0.186-itb.9`. Based on upstream v6.0.186.
