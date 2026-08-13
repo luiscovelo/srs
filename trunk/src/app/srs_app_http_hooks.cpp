@@ -148,6 +148,8 @@ srs_error_t SrsHttpHooks::on_publish(string url, SrsRequest* req)
         return srs_error_wrap(err, "http: on_publish failed, client_id=%s, url=%s, request=%s, response=%s, code=%d",
             cid.c_str(), url.c_str(), data.c_str(), res.c_str(), status_code);
     }
+
+    parse_on_publish_response(res, req);
     
     srs_trace("http: on_publish ok, client_id=%s, url=%s, request=%s, response=%s",
         cid.c_str(), url.c_str(), data.c_str(), res.c_str());
@@ -155,7 +157,38 @@ srs_error_t SrsHttpHooks::on_publish(string url, SrsRequest* req)
     return err;
 }
 
+void SrsHttpHooks::parse_on_publish_response(string res, SrsRequest* req)
+{
+    SrsUniquePtr<SrsJsonAny> info(SrsJsonAny::loads(res));
+    if (!info.get() || !info->is_object()) {
+        return;
+    }
+
+    SrsJsonObject* res_info = info->to_object();
+    SrsJsonAny* data = res_info->ensure_property_object("data");
+    if (!data) {
+        return;
+    }
+
+    SrsJsonObject* obj = data->to_object();
+    SrsJsonAny* prop = NULL;
+
+    if ((prop = obj->ensure_property_boolean("skip_dvr_audio")) != NULL) {
+        req->skip_dvr_audio = prop->to_boolean();
+    }
+
+    if ((prop = obj->ensure_property_boolean("hevc_supported")) != NULL) {
+        req->hevc_supported = prop->to_boolean();
+    }
+}
+
 void SrsHttpHooks::on_unpublish(string url, SrsRequest* req)
+{
+    on_unpublish(url, req, "", ERROR_SUCCESS, "", "");
+}
+
+void SrsHttpHooks::on_unpublish(string url, SrsRequest* req, string reason,
+    int error_code, string error_name, string error_detail)
 {
     srs_error_t err = srs_success;
     
@@ -179,6 +212,13 @@ void SrsHttpHooks::on_unpublish(string url, SrsRequest* req)
     if (stream) {
         obj->set("stream_id", SrsJsonAny::str(stream->id.c_str()));
     }
+
+    if (!reason.empty()) {
+        obj->set("unpublish_reason", SrsJsonAny::str(reason.c_str()));
+        obj->set("unpublish_code", SrsJsonAny::integer(error_code));
+        obj->set("unpublish_error", SrsJsonAny::str(error_name.c_str()));
+        obj->set("unpublish_detail", SrsJsonAny::str(error_detail.c_str()));
+    }
     
     std::string data = obj->dumps();
     std::string res;
@@ -193,8 +233,13 @@ void SrsHttpHooks::on_unpublish(string url, SrsRequest* req)
         return;
     }
     
-    srs_trace("http: on_unpublish ok, client_id=%s, url=%s, request=%s, response=%s",
-        cid.c_str(), url.c_str(), data.c_str(), res.c_str());
+    if (!reason.empty()) {
+        srs_trace("http: on_unpublish ok, client_id=%s, reason=%s, url=%s, request=%s, response=%s",
+            cid.c_str(), reason.c_str(), url.c_str(), data.c_str(), res.c_str());
+    } else {
+        srs_trace("http: on_unpublish ok, client_id=%s, url=%s, request=%s, response=%s",
+            cid.c_str(), url.c_str(), data.c_str(), res.c_str());
+    }
     
     return;
 }

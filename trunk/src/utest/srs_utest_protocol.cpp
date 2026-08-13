@@ -3595,6 +3595,41 @@ VOID TEST(ProtocolRTMPTest, RTMPRequest)
     EXPECT_STREQ("?a=1#e=5&c=3#b=2#d=4", param.c_str());
 }
 
+VOID TEST(ProtocolRTMPTest, RequestHookFlags)
+{
+    if (true) {
+        SrsRequest req;
+        EXPECT_TRUE(req.skip_dvr_audio);
+        EXPECT_FALSE(req.hevc_supported);
+    }
+
+    if (true) {
+        SrsRequest req;
+        req.skip_dvr_audio = false;
+        req.hevc_supported = true;
+
+        SrsRequest* cp = req.copy();
+        SrsUniquePtr<SrsRequest> cp_uptr(cp);
+        EXPECT_FALSE(cp->skip_dvr_audio);
+        EXPECT_TRUE(cp->hevc_supported);
+    }
+
+    if (true) {
+        SrsRequest req;
+        SrsRequest src;
+        src.skip_dvr_audio = false;
+        src.hevc_supported = true;
+
+        req.update_auth(&src);
+        EXPECT_TRUE(req.skip_dvr_audio);
+        EXPECT_FALSE(req.hevc_supported);
+
+        req.update_publish_controls(&src);
+        EXPECT_FALSE(req.skip_dvr_audio);
+        EXPECT_TRUE(req.hevc_supported);
+    }
+}
+
 VOID TEST(ProtocolRTMPTest, RTMPHandshakeBytes)
 {
     srs_error_t err = srs_success;
@@ -3615,4 +3650,3 @@ VOID TEST(ProtocolRTMPTest, RTMPHandshakeBytes)
     HELPER_EXPECT_SUCCESS(bytes.read_s0s1s2(&bio));
     EXPECT_TRUE(bytes.s0s1s2 != NULL);
 }
-

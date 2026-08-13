@@ -7,6 +7,7 @@
 #include <srs_app_dvr.hpp>
 
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <sstream>
 #include <algorithm>
 using namespace std;
@@ -89,7 +90,7 @@ srs_error_t SrsDvrSegmenter::open()
     
     // create jitter.
     srs_freep(jitter);
-    jitter = new SrsRtmpJitter();
+    jitter = new SrsRtmpJitter(req->app, req->stream, "dvr");
     
     // open file writer, in append or create mode.
     string tmp_dvr_file = fragment->tmppath();
@@ -174,6 +175,27 @@ srs_error_t SrsDvrSegmenter::close()
     fs->close(); // Always close the file.
     if (err != srs_success) {
         return srs_error_wrap(err, "close encoder");
+    }
+
+    int64_t min_file_size = _srs_config->get_dvr_min_file_size(req->vhost);
+    if (min_file_size > 0) {
+        string path = fragment->tmppath();
+        struct stat st;
+        if (::stat(path.c_str(), &st) < 0) {
+            return srs_error_new(ERROR_SYSTEM_FILE_READ, "stat dvr file %s failed", path.c_str());
+        }
+
+        int64_t file_size = (int64_t)st.st_size;
+        if (file_size <= min_file_size) {
+            if ((err = fragment->unlink_tmpfile()) != srs_success) {
+                return srs_error_wrap(err, "discard small dvr file");
+            }
+
+            srs_warn("DVR file discarded because it does not exceed the configured minimum, file=%s, size=%" PRId64
+                ", minimum=%" PRId64 ", vhost=%s, app=%s, stream=%s", path.c_str(), file_size,
+                min_file_size, req->vhost.c_str(), req->app.c_str(), req->stream.c_str());
+            return srs_success;
+        }
     }
     
     // when tmp flv file exists, reap it.
@@ -1010,6 +1032,10 @@ srs_error_t SrsDvr::on_audio(SrsSharedPtrMessage* shared_audio, SrsFormat* forma
     if (!actived) {
         return srs_success;
     }
+
+    if (req && req->skip_dvr_audio) {
+        return srs_success;
+    }
     
     return plan->on_audio(shared_audio, format);
 }
@@ -1023,4 +1049,3 @@ srs_error_t SrsDvr::on_video(SrsSharedPtrMessage* shared_video, SrsFormat* forma
     
     return plan->on_video(shared_video, format);
 }
-

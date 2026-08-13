@@ -18,11 +18,32 @@
 #include <srs_core_autofree.hpp>
 #include <srs_app_statistic.hpp>
 
+#include <chrono>
 #include <sys/socket.h>
 using namespace std;
 
 // the max small bytes to group
 #define SRS_MR_SMALL_BYTES 4096
+
+// Report an ingest stall only when the interval is strictly greater than one second.
+#define SRS_RTMP_INGEST_STALL_WARN (1 * SRS_UTIME_SECONDS)
+
+static int64_t srs_rtmp_recv_monotonic_time_us()
+{
+    return chrono::duration_cast<chrono::microseconds>(
+        chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+static const char* srs_rtmp_media_type(int8_t message_type)
+{
+    if (message_type == RTMP_MSG_AudioMessage) {
+        return "audio";
+    }
+    if (message_type == RTMP_MSG_VideoMessage) {
+        return "video";
+    }
+    return "other";
+}
 
 ISrsMessageConsumer::ISrsMessageConsumer()
 {
@@ -271,6 +292,12 @@ SrsPublishRecvThread::SrsPublishRecvThread(SrsRtmpServer* rtmp_sdk, SrsRequest* 
     recv_error = srs_success;
     _nb_msgs = 0;
     video_frames = 0;
+    last_media_observed_at_us_ = 0;
+    last_media_type_ = 0;
+    last_media_timestamp_ = 0;
+    socket_wait_time_us_ = 0;
+    socket_reads_ = 0;
+    socket_bytes_ = 0;
     error = srs_cond_new();
 
     req = _req;
@@ -364,6 +391,38 @@ srs_error_t SrsPublishRecvThread::consume(SrsCommonMessage* msg)
     if (msg->header.is_video()) {
         video_frames++;
     }
+
+    // Diagnose the interval between complete media messages before any source
+    // or DVR timestamp correction. RTMP control messages do not reset it.
+    if (msg->header.is_audio() || msg->header.is_video()) {
+        int64_t observed_at_us = srs_rtmp_recv_monotonic_time_us();
+        int64_t media_interval_us = last_media_observed_at_us_? observed_at_us - last_media_observed_at_us_ : 0;
+        bool ingest_stall = last_media_observed_at_us_ && media_interval_us > SRS_RTMP_INGEST_STALL_WARN;
+
+        if (ingest_stall) {
+            int64_t server_time_us = media_interval_us - socket_wait_time_us_;
+            server_time_us = srs_max((int64_t)0, server_time_us);
+
+            srs_warn("RTMP media ingest stall: vhost=%s, stream=/%s/%s, ip=%s, "
+                "elapsed=%.3fs, socket_wait=%.3fs, server_time=%.3fs, "
+                "socket_reads=%" PRId64 ", socket_bytes=%" PRId64 ", "
+                "previous=%s@%" PRId64 "ms, resumed=%s@%" PRId64 "ms",
+                req->vhost.c_str(), req->app.c_str(), req->stream.c_str(), req->ip.c_str(),
+                (double)media_interval_us / SRS_UTIME_SECONDS,
+                (double)socket_wait_time_us_ / SRS_UTIME_SECONDS,
+                (double)server_time_us / SRS_UTIME_SECONDS,
+                socket_reads_, socket_bytes_,
+                srs_rtmp_media_type(last_media_type_), last_media_timestamp_,
+                srs_rtmp_media_type(msg->header.message_type), msg->header.timestamp);
+        }
+
+        last_media_observed_at_us_ = observed_at_us;
+        last_media_type_ = msg->header.message_type;
+        last_media_timestamp_ = msg->header.timestamp;
+        socket_wait_time_us_ = 0;
+        socket_reads_ = 0;
+        socket_bytes_ = 0;
+    }
     
     // log to show the time of recv thread.
     srs_verbose("recv thread now=%" PRId64 "us, got msg time=%" PRId64 "ms, size=%d",
@@ -407,6 +466,8 @@ void SrsPublishRecvThread::interrupt(srs_error_t err)
 
 void SrsPublishRecvThread::on_start()
 {
+    rtmp->set_read_observer(this);
+
     // we donot set the auto response to false,
     // for the main thread never send message.
     
@@ -423,6 +484,8 @@ void SrsPublishRecvThread::on_start()
 
 void SrsPublishRecvThread::on_stop()
 {
+    rtmp->set_read_observer(NULL);
+
     // we donot set the auto response to true,
     // for we donot set to false yet.
     
@@ -435,6 +498,13 @@ void SrsPublishRecvThread::on_stop()
         rtmp->set_merge_read(false, NULL);
     }
 #endif
+}
+
+void SrsPublishRecvThread::on_socket_read(ssize_t nread, srs_utime_t duration)
+{
+    socket_wait_time_us_ += duration;
+    socket_reads_++;
+    socket_bytes_ += nread;
 }
 
 #ifdef SRS_PERF_MERGED_READ
@@ -585,4 +655,3 @@ srs_error_t SrsHttpRecvThread::cycle()
     
     return err;
 }
-

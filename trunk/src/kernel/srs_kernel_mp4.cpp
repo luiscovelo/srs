@@ -5906,10 +5906,10 @@ srs_error_t SrsMp4Encoder::write_sample(
 srs_error_t SrsMp4Encoder::flush()
 {
     srs_error_t err = srs_success;
-    
-    if (!nb_audios && !nb_videos) {
-        return srs_error_new(ERROR_MP4_ILLEGAL_MOOV, "Missing audio and video track");
-    }
+
+    // Finalize empty DVR sessions as an MP4 container without tracks. This
+    // allows the DVR segmenter to rename the temporary file and notify on_dvr
+    // even when the publisher is rejected before the first media sample.
     
     // Write moov.
     if (true) {
@@ -6685,4 +6685,3 @@ srs_error_t SrsMp4M2tsSegmentEncoder::flush(uint64_t& dts)
 
     return err;
 }
-

@@ -6,6 +6,7 @@
 
 #include <srs_protocol_stream.hpp>
 
+#include <chrono>
 #include <stdlib.h>
 
 #include <srs_kernel_error.hpp>
@@ -25,6 +26,20 @@
 // @see SrsProtocol::read_message_header().
 #define SRS_RTMP_MAX_MESSAGE_HEADER 11
 
+ISrsReadObserver::ISrsReadObserver()
+{
+}
+
+ISrsReadObserver::~ISrsReadObserver()
+{
+}
+
+static int64_t srs_fast_stream_monotonic_time_us()
+{
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 #ifdef SRS_PERF_MERGED_READ
 IMergeReadHandler::IMergeReadHandler()
 {
@@ -37,6 +52,7 @@ IMergeReadHandler::~IMergeReadHandler()
 
 SrsFastStream::SrsFastStream(int size)
 {
+    read_observer_ = NULL;
 #ifdef SRS_PERF_MERGED_READ
     merged_read = false;
     _handler = NULL;
@@ -158,8 +174,13 @@ srs_error_t SrsFastStream::grow(ISrsReader* reader, int required_size)
     // buffer is ok, read required size of bytes.
     while (end - p < required_size) {
         ssize_t nread;
+        int64_t read_started_at_us = read_observer_? srs_fast_stream_monotonic_time_us() : 0;
         if ((err = reader->read(end, nb_free_space, &nread)) != srs_success) {
             return srs_error_wrap(err, "read bytes");
+        }
+
+        if (read_observer_) {
+            read_observer_->on_socket_read(nread, srs_fast_stream_monotonic_time_us() - read_started_at_us);
         }
         
 #ifdef SRS_PERF_MERGED_READ
@@ -182,6 +203,11 @@ srs_error_t SrsFastStream::grow(ISrsReader* reader, int required_size)
     return err;
 }
 
+void SrsFastStream::set_read_observer(ISrsReadObserver* observer)
+{
+    read_observer_ = observer;
+}
+
 #ifdef SRS_PERF_MERGED_READ
 void SrsFastStream::set_merge_read(bool v, IMergeReadHandler* handler)
 {
@@ -189,4 +215,3 @@ void SrsFastStream::set_merge_read(bool v, IMergeReadHandler* handler)
     _handler = handler;
 }
 #endif
-

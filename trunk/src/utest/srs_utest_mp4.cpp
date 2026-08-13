@@ -6,10 +6,16 @@
 #include <srs_utest_mp4.hpp>
 
 #include <sstream>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <vector>
 using namespace std;
 
 #include <srs_utest_kernel.hpp>
 #include <srs_kernel_error.hpp>
+#include <srs_kernel_flv.hpp>
+#include <srs_kernel_io.hpp>
 #include <srs_kernel_mp4.hpp>
 #include <srs_core_autofree.hpp>
 
@@ -2051,4 +2057,339 @@ VOID TEST(KernelMp4Test, SrsMp4DvrJitter)
         EXPECT_EQ(500, jitter.get_first_sample_delta(SrsFrameTypeVideo)); // 1500 - 1000 = 500
         EXPECT_EQ(0, jitter.get_first_sample_delta(SrsFrameTypeAudio));
     }
+}
+
+// A seekable sink for comparing only muxing cost. It never stores media
+// payload, so results are independent of disk and page-cache behavior.
+class MockSrsDvrBenchmarkWriter : public ISrsWriteSeeker
+{
+public:
+    int64_t offset_;
+    int64_t size_;
+    int64_t bytes_written_;
+    int64_t writes_;
+    int64_t writevs_;
+    int64_t seeks_;
+public:
+    MockSrsDvrBenchmarkWriter()
+    {
+        offset_ = size_ = bytes_written_ = 0;
+        writes_ = writevs_ = seeks_ = 0;
+    }
+    virtual ~MockSrsDvrBenchmarkWriter()
+    {
+    }
+public:
+    virtual srs_error_t write(void* /*buf*/, size_t size, ssize_t* nwrite)
+    {
+        offset_ += (int64_t)size;
+        size_ = srs_max(size_, offset_);
+        bytes_written_ += (int64_t)size;
+        writes_++;
+
+        if (nwrite) {
+            *nwrite = (ssize_t)size;
+        }
+        return srs_success;
+    }
+
+    virtual srs_error_t writev(const iovec* iov, int iov_size, ssize_t* nwrite)
+    {
+        srs_error_t err = srs_success;
+        ssize_t total = 0;
+        writevs_++;
+
+        // Match SrsFileWriter::writev(), which dispatches each iovec through
+        // write() instead of issuing a native writev syscall.
+        for (int i = 0; i < iov_size; i++) {
+            ssize_t nn = 0;
+            if ((err = write(iov[i].iov_base, iov[i].iov_len, &nn)) != srs_success) {
+                return err;
+            }
+            total += nn;
+        }
+
+        if (nwrite) {
+            *nwrite = total;
+        }
+        return err;
+    }
+
+    virtual srs_error_t lseek(off_t offset, int whence, off_t* seeked)
+    {
+        seeks_++;
+        if (whence == SEEK_SET) {
+            offset_ = offset;
+        } else if (whence == SEEK_CUR) {
+            offset_ += offset;
+        } else if (whence == SEEK_END) {
+            offset_ = size_ + offset;
+        }
+
+        if (seeked) {
+            *seeked = (off_t)offset_;
+        }
+        return srs_success;
+    }
+};
+
+struct SrsDvrBenchmarkResult
+{
+    int64_t total_ns;
+    int64_t close_ns;
+    int64_t file_bytes;
+    int64_t bytes_written;
+    int64_t writes;
+    int64_t writevs;
+    int64_t seeks;
+
+    SrsDvrBenchmarkResult()
+    {
+        total_ns = close_ns = file_bytes = bytes_written = 0;
+        writes = writevs = seeks = 0;
+    }
+};
+
+static int64_t srs_dvr_benchmark_now_ns()
+{
+    timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+}
+
+static srs_error_t srs_dvr_benchmark_flv(SrsDvrBenchmarkResult& r, int duration_s, int video_fps,
+    const vector<char>& video_keyframe, const vector<char>& video_interframe, const vector<char>& audio_frame,
+    const char* vsh, int nb_vsh, const char* ash, int nb_ash)
+{
+    srs_error_t err = srs_success;
+    MockSrsDvrBenchmarkWriter writer;
+
+    int64_t started = srs_dvr_benchmark_now_ns();
+    SrsFlvTransmuxer enc;
+    if ((err = enc.initialize(&writer)) != srs_success) {
+        return srs_error_wrap(err, "initialize flv");
+    }
+    if ((err = enc.write_header()) != srs_success) {
+        return srs_error_wrap(err, "write flv header");
+    }
+    if ((err = enc.write_video(0, (char*)vsh, nb_vsh)) != srs_success) {
+        return srs_error_wrap(err, "write flv vsh");
+    }
+    if (nb_ash > 0 && (err = enc.write_audio(0, (char*)ash, nb_ash)) != srs_success) {
+        return srs_error_wrap(err, "write flv ash");
+    }
+
+    int video_index = 0;
+    int audio_index = 0;
+    int nb_videos = duration_s * video_fps;
+    int nb_audios = audio_frame.empty() ? 0 : (duration_s * 44100 + 1023) / 1024;
+    while (video_index < nb_videos || audio_index < nb_audios) {
+        int64_t video_dts = video_index * 1000LL / video_fps;
+        int64_t audio_dts = audio_index * 1024LL * 1000 / 44100;
+
+        if (video_index < nb_videos && (audio_index >= nb_audios || video_dts <= audio_dts)) {
+            bool keyframe = (video_index % (video_fps * 2)) == 0;
+            const vector<char>& frame = keyframe ? video_keyframe : video_interframe;
+            if ((err = enc.write_video(video_dts, (char*)&frame[0], (int)frame.size())) != srs_success) {
+                return srs_error_wrap(err, "write flv video");
+            }
+            video_index++;
+        } else {
+            if ((err = enc.write_audio(audio_dts, (char*)&audio_frame[0], (int)audio_frame.size())) != srs_success) {
+                return srs_error_wrap(err, "write flv audio");
+            }
+            audio_index++;
+        }
+    }
+
+    int64_t closing = srs_dvr_benchmark_now_ns();
+    // SrsFlvTransmuxer has no per-sample index to flush. The DVR segmenter
+    // only patches duration/filesize and closes the file.
+    int64_t completed = srs_dvr_benchmark_now_ns();
+
+    r.total_ns = completed - started;
+    r.close_ns = completed - closing;
+    r.file_bytes = writer.size_;
+    r.bytes_written = writer.bytes_written_;
+    r.writes = writer.writes_;
+    r.writevs = writer.writevs_;
+    r.seeks = writer.seeks_;
+    return err;
+}
+
+static srs_error_t srs_dvr_benchmark_mp4(SrsDvrBenchmarkResult& r, int duration_s, int video_fps,
+    const vector<char>& video_keyframe, const vector<char>& video_interframe, const vector<char>& audio_frame,
+    SrsFormat* format, const char* vsh, int nb_vsh, const char* ash, int nb_ash)
+{
+    srs_error_t err = srs_success;
+    MockSrsDvrBenchmarkWriter writer;
+
+    int64_t started = srs_dvr_benchmark_now_ns();
+    SrsMp4Encoder enc;
+    if ((err = enc.initialize(&writer)) != srs_success) {
+        return srs_error_wrap(err, "initialize mp4");
+    }
+
+    enc.vcodec = format->vcodec->id;
+    if ((err = enc.write_sample(format, SrsMp4HandlerTypeVIDE, SrsVideoAvcFrameTypeKeyFrame,
+        SrsVideoAvcFrameTraitSequenceHeader, 0, 0, (uint8_t*)vsh + 5, nb_vsh - 5)) != srs_success) {
+        return srs_error_wrap(err, "write mp4 vsh");
+    }
+
+    if (nb_ash > 0) {
+        enc.acodec = format->acodec->id;
+        enc.sample_rate = format->acodec->sound_rate;
+        enc.sound_bits = format->acodec->sound_size;
+        enc.channels = format->acodec->sound_type;
+        if ((err = enc.write_sample(format, SrsMp4HandlerTypeSOUN, 0,
+            SrsAudioAacFrameTraitSequenceHeader, 0, 0, (uint8_t*)ash + 2, nb_ash - 2)) != srs_success) {
+            return srs_error_wrap(err, "write mp4 ash");
+        }
+    }
+
+    int video_index = 0;
+    int audio_index = 0;
+    int nb_videos = duration_s * video_fps;
+    int nb_audios = audio_frame.empty() ? 0 : (duration_s * 44100 + 1023) / 1024;
+    while (video_index < nb_videos || audio_index < nb_audios) {
+        uint32_t video_dts = (uint32_t)(video_index * 1000LL / video_fps);
+        uint32_t audio_dts = (uint32_t)(audio_index * 1024LL * 1000 / 44100);
+
+        if (video_index < nb_videos && (audio_index >= nb_audios || video_dts <= audio_dts)) {
+            bool keyframe = (video_index % (video_fps * 2)) == 0;
+            const vector<char>& frame = keyframe ? video_keyframe : video_interframe;
+            if ((err = enc.write_sample(format, SrsMp4HandlerTypeVIDE,
+                keyframe ? SrsVideoAvcFrameTypeKeyFrame : SrsVideoAvcFrameTypeInterFrame,
+                SrsVideoAvcFrameTraitNALU, video_dts, video_dts, (uint8_t*)&frame[5], (uint32_t)frame.size() - 5)) != srs_success) {
+                return srs_error_wrap(err, "write mp4 video");
+            }
+            video_index++;
+        } else {
+            if ((err = enc.write_sample(format, SrsMp4HandlerTypeSOUN, 0,
+                SrsAudioAacFrameTraitRawData, audio_dts, audio_dts, (uint8_t*)&audio_frame[2],
+                (uint32_t)audio_frame.size() - 2)) != srs_success) {
+                return srs_error_wrap(err, "write mp4 audio");
+            }
+            audio_index++;
+        }
+    }
+
+    int64_t closing = srs_dvr_benchmark_now_ns();
+    if ((err = enc.flush()) != srs_success) {
+        return srs_error_wrap(err, "flush mp4");
+    }
+    int64_t completed = srs_dvr_benchmark_now_ns();
+
+    r.total_ns = completed - started;
+    r.close_ns = completed - closing;
+    r.file_bytes = writer.size_;
+    r.bytes_written = writer.bytes_written_;
+    r.writes = writer.writes_;
+    r.writevs = writer.writevs_;
+    r.seeks = writer.seeks_;
+    return err;
+}
+
+// Run explicitly with:
+//   ./objs/srs_utest --gtest_filter=DvrMuxerBenchmark.DISABLED_FlvVsMp4 --gtest_also_run_disabled_tests
+// Optional: SRS_BENCHMARK_ITERATIONS=N (default 5).
+VOID TEST(DvrMuxerBenchmark, DISABLED_FlvVsMp4)
+{
+    srs_error_t err = srs_success;
+
+    const int duration_s = 180;
+    const int width = 704;
+    const int height = 480;
+    const int video_fps = 15;
+    const int nominal_video_bitrate_kbps = 256;
+    // An observed 4MiB file over 180s is about 186kbps effective, even when
+    // the camera is configured with a nominal 256kbps bitrate.
+    const int effective_video_bitrate_kbps = 186;
+    const int video_bytes = effective_video_bitrate_kbps * 1000 / 8 / video_fps;
+
+    int iterations = 5;
+    const char* iterations_env = getenv("SRS_BENCHMARK_ITERATIONS");
+    if (iterations_env && atoi(iterations_env) > 0) {
+        iterations = atoi(iterations_env);
+    }
+
+    // Real AVCDecoderConfigurationRecord and AAC AudioSpecificConfig from the
+    // existing MP4 codec tests. Normal payload bytes are opaque to both muxers.
+    char vsh[] = {
+        0x17, 0x00, 0x00, 0x00, 0x00, 0x01, 0x64, 0x00, 0x20, (char)0xff, (char)0xe1, 0x00, 0x19,
+        0x67, 0x64, 0x00, 0x20, (char)0xac, (char)0xd9, 0x40, (char)0xc0, 0x29, (char)0xb0, 0x11,
+        0x00, 0x00, 0x03, 0x00, 0x01, 0x00, 0x00, 0x03, 0x00, 0x32, 0x0f, 0x18, 0x31, (char)0x96,
+        0x01, 0x00, 0x05, 0x68, (char)0xeb, (char)0xec, (char)0xb2, 0x2c
+    };
+    vector<char> video_keyframe(video_bytes, 0x5a);
+    vector<char> video_interframe(video_bytes, 0x5a);
+    vector<char> audio_frame;
+    video_keyframe[0] = 0x17;
+    video_interframe[0] = 0x27;
+    video_keyframe[1] = video_interframe[1] = 0x01;
+    video_keyframe[2] = video_keyframe[3] = video_keyframe[4] = 0x00;
+    video_interframe[2] = video_interframe[3] = video_interframe[4] = 0x00;
+
+    SrsFormat format;
+    HELPER_ASSERT_SUCCESS(format.initialize());
+    HELPER_ASSERT_SUCCESS(format.on_video(0, vsh, sizeof(vsh)));
+    format.vcodec->width = width;
+    format.vcodec->height = height;
+
+    // Warm allocators and instruction cache before collecting values.
+    SrsDvrBenchmarkResult warmup;
+    HELPER_ASSERT_SUCCESS(srs_dvr_benchmark_flv(warmup, duration_s, video_fps,
+        video_keyframe, video_interframe, audio_frame, vsh, sizeof(vsh), NULL, 0));
+    HELPER_ASSERT_SUCCESS(srs_dvr_benchmark_mp4(warmup, duration_s, video_fps,
+        video_keyframe, video_interframe, audio_frame, &format, vsh, sizeof(vsh), NULL, 0));
+
+    SrsDvrBenchmarkResult flv;
+    SrsDvrBenchmarkResult mp4;
+    for (int i = 0; i < iterations; i++) {
+        SrsDvrBenchmarkResult current;
+        HELPER_ASSERT_SUCCESS(srs_dvr_benchmark_flv(current, duration_s, video_fps,
+            video_keyframe, video_interframe, audio_frame, vsh, sizeof(vsh), NULL, 0));
+        flv.total_ns += current.total_ns;
+        flv.close_ns += current.close_ns;
+        flv.file_bytes = current.file_bytes;
+        flv.bytes_written = current.bytes_written;
+        flv.writes = current.writes;
+        flv.writevs = current.writevs;
+        flv.seeks = current.seeks;
+
+        HELPER_ASSERT_SUCCESS(srs_dvr_benchmark_mp4(current, duration_s, video_fps,
+            video_keyframe, video_interframe, audio_frame, &format, vsh, sizeof(vsh), NULL, 0));
+        mp4.total_ns += current.total_ns;
+        mp4.close_ns += current.close_ns;
+        mp4.file_bytes = current.file_bytes;
+        mp4.bytes_written = current.bytes_written;
+        mp4.writes = current.writes;
+        mp4.writevs = current.writevs;
+        mp4.seeks = current.seeks;
+    }
+
+    int64_t nb_videos = duration_s * video_fps;
+    int64_t nb_audios = 0;
+    int64_t nb_samples = nb_videos + nb_audios;
+    int64_t mp4_metadata_min = nb_samples * (sizeof(SrsMp4Sample) + sizeof(SrsMp4Sample*));
+    double flv_ms = flv.total_ns / iterations / 1000000.0;
+    double mp4_ms = mp4.total_ns / iterations / 1000000.0;
+    double mp4_close_ms = mp4.close_ns / iterations / 1000000.0;
+
+    fprintf(stderr, "\nDVR_MUXER_BENCH duration=%ds iterations=%d video=%dx%d/%dfps nominal=%dkbps effective=%dkbps audio=none samples=%" PRId64 "\n",
+        duration_s, iterations, width, height, video_fps, nominal_video_bitrate_kbps, effective_video_bitrate_kbps, nb_samples);
+    fprintf(stderr, "DVR_MUXER_BENCH format=flv total_ms=%.3f close_ms=%.3f file_bytes=%" PRId64
+        " bytes_written=%" PRId64 " writes=%" PRId64 " writevs=%" PRId64 " seeks=%" PRId64 "\n",
+        flv_ms, flv.close_ns / iterations / 1000000.0, flv.file_bytes, flv.bytes_written, flv.writes, flv.writevs, flv.seeks);
+    fprintf(stderr, "DVR_MUXER_BENCH format=mp4 total_ms=%.3f close_ms=%.3f file_bytes=%" PRId64
+        " bytes_written=%" PRId64 " writes=%" PRId64 " writevs=%" PRId64 " seeks=%" PRId64
+        " retained_metadata_min_bytes=%" PRId64 "\n",
+        mp4_ms, mp4_close_ms, mp4.file_bytes, mp4.bytes_written, mp4.writes, mp4.writevs, mp4.seeks, mp4_metadata_min);
+    fprintf(stderr, "DVR_MUXER_BENCH mp4_to_flv_time_ratio=%.2f mp4_close_percent=%.1f\n",
+        mp4_ms / flv_ms, mp4_ms > 0 ? mp4_close_ms * 100.0 / mp4_ms : 0);
+
+    EXPECT_GT(flv.file_bytes, 0);
+    EXPECT_GT(mp4.file_bytes, 0);
+    EXPECT_EQ(nb_samples + 5, mp4.writes); // ftyp, free, mdat header, moov and mdat patch.
+    EXPECT_EQ(nb_samples + 2, mp4.seeks); // mdat start, one per sample and mdat patch.
 }

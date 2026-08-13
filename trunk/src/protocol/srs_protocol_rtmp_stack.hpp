@@ -24,6 +24,7 @@
 #include <srs_kernel_flv.hpp>
 
 class SrsFastStream;
+class ISrsReadObserver;
 class SrsBuffer;
 class SrsAmf0Any;
 class SrsMessageHeader;
@@ -211,6 +212,8 @@ public:
     // need to call this api(the protocol sdk will auto send message).
     // @see the auto_response_when_recv and manual_response_queue.
     virtual srs_error_t manual_response_flush();
+    // Observe actual reads used to refill the RTMP input buffer.
+    virtual void set_read_observer(ISrsReadObserver* observer);
 public:
 #ifdef SRS_PERF_MERGED_READ
     // To improve read performance, merge some packets then read,
@@ -441,6 +444,10 @@ public:
     // used for edge traverse to origin authentication,
     // @see https://github.com/ossrs/srs/issues/104
     SrsAmf0Object* args;
+    // Whether DVR should skip audio packets for this stream.
+    bool skip_dvr_audio;
+    // Whether HEVC video packets are accepted for this stream.
+    bool hevc_supported;
 public:
     SrsRequest();
     virtual ~SrsRequest();
@@ -453,6 +460,8 @@ public:
     // To keep the current request ptr is ok,
     // For many components use the ptr of request.
     virtual void update_auth(SrsRequest* req);
+    // Update controls from on_publish hook after publish ownership is confirmed.
+    virtual void update_publish_controls(SrsRequest* req);
     // Get the stream identify, vhost/app/stream.
     virtual std::string get_stream_url();
     // To strip url, user must strip when update the url.
@@ -632,6 +641,8 @@ public:
     // Set the auto response message when recv for protocol stack.
     // @param v, whether auto response message when recv message.
     virtual void set_auto_response(bool v);
+    // Observe actual reads used to refill the RTMP input buffer.
+    virtual void set_read_observer(ISrsReadObserver* observer);
 #ifdef SRS_PERF_MERGED_READ
     // To improve read performance, merge some packets then read,
     // When it on and read small bytes, we sleep to wait more data.,
@@ -1564,4 +1575,3 @@ protected:
 };
 
 #endif
-

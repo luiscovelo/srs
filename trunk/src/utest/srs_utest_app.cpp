@@ -5,6 +5,8 @@
 //
 #include <srs_utest_app.hpp>
 
+#include <stdio.h>
+
 using namespace std;
 
 #include <srs_kernel_error.hpp>
@@ -12,10 +14,93 @@ using namespace std;
 #include <srs_app_security.hpp>
 #include <srs_app_config.hpp>
 #include <srs_app_statistic.hpp>
+#include <srs_app_dvr.hpp>
+#include <srs_app_http_hooks.hpp>
+#include <srs_app_source.hpp>
+#include <srs_kernel_file.hpp>
+#include <srs_kernel_flv.hpp>
+#include <srs_kernel_log.hpp>
+#include <srs_kernel_utility.hpp>
+#include <srs_utest_config.hpp>
 
 #include <srs_app_st.hpp>
 #include <srs_protocol_conn.hpp>
 #include <srs_app_conn.hpp>
+#include <srs_protocol_st.hpp>
+#include <srs_protocol_rtmp_stack.hpp>
+
+class MockCountingLog : public ISrsLog
+{
+public:
+    int warns;
+    string last_warn;
+public:
+    MockCountingLog() {
+        warns = 0;
+    }
+    virtual ~MockCountingLog() {
+    }
+public:
+    virtual srs_error_t initialize() {
+        return srs_success;
+    }
+    virtual void reopen() {
+    }
+    virtual void log(SrsLogLevel level, const char* /*tag*/, const SrsContextId& /*context_id*/, const char* fmt, va_list args) {
+        if (level == SrsLogLevelWarn) {
+            warns++;
+
+            char message[1024];
+            vsnprintf(message, sizeof(message), fmt, args);
+            last_warn = message;
+        }
+    }
+};
+
+class MockLogGuard
+{
+private:
+    ISrsLog* previous_;
+public:
+    MockLogGuard(ISrsLog* replacement) {
+        previous_ = _srs_log;
+        _srs_log = replacement;
+    }
+    virtual ~MockLogGuard() {
+        _srs_log = previous_;
+    }
+};
+
+VOID TEST(AppRtmpJitterTest, SuppressZeroLastPacketWarning)
+{
+    srs_error_t err = srs_success;
+    MockCountingLog log;
+    MockLogGuard guard(&log);
+    SrsRtmpJitter jitter("live", "camera01", "consumer");
+
+    SrsMessageHeader header;
+    header.initialize_video(0, 0, 1);
+    SrsSharedPtrMessage sequence_header;
+    HELPER_EXPECT_SUCCESS(sequence_header.create(&header, NULL, 0));
+    HELPER_EXPECT_SUCCESS(jitter.correct(&sequence_header, SrsRtmpJitterAlgorithmFULL));
+
+    header.initialize_video(0, 62937513, 1);
+    SrsSharedPtrMessage current_packet;
+    HELPER_EXPECT_SUCCESS(current_packet.create(&header, NULL, 0));
+    HELPER_EXPECT_SUCCESS(jitter.correct(&current_packet, SrsRtmpJitterAlgorithmFULL));
+    EXPECT_EQ(0, log.warns);
+    EXPECT_EQ(67, current_packet.timestamp);
+
+    header.initialize_video(0, 62938513, 1);
+    SrsSharedPtrMessage real_jitter;
+    HELPER_EXPECT_SUCCESS(real_jitter.create(&header, NULL, 0));
+    HELPER_EXPECT_SUCCESS(jitter.correct(&real_jitter, SrsRtmpJitterAlgorithmFULL));
+    EXPECT_EQ(1, log.warns);
+    EXPECT_NE(string::npos, log.last_warn.find("app=live"));
+    EXPECT_NE(string::npos, log.last_warn.find("stream=camera01"));
+    EXPECT_NE(string::npos, log.last_warn.find("scope=consumer"));
+    EXPECT_EQ(134, real_jitter.timestamp);
+}
 
 class MockIDResource : public ISrsResource
 {
@@ -239,6 +324,155 @@ VOID TEST(AppCoroutineTest, Dummy)
     }
 }
 
+VOID TEST(AppHttpHooksTest, OnPublishResponseFlags)
+{
+    if (true) {
+        SrsRequest req;
+        SrsHttpHooks::parse_on_publish_response("{\"code\":0,\"data\":{\"skip_dvr_audio\":false,\"hevc_supported\":true}}", &req);
+        EXPECT_FALSE(req.skip_dvr_audio);
+        EXPECT_TRUE(req.hevc_supported);
+    }
+
+    if (true) {
+        SrsRequest req;
+        SrsHttpHooks::parse_on_publish_response("{\"code\":0,\"data\":{}}", &req);
+        EXPECT_TRUE(req.skip_dvr_audio);
+        EXPECT_FALSE(req.hevc_supported);
+    }
+
+    if (true) {
+        SrsRequest req;
+        SrsHttpHooks::parse_on_publish_response("0", &req);
+        EXPECT_TRUE(req.skip_dvr_audio);
+        EXPECT_FALSE(req.hevc_supported);
+    }
+
+    if (true) {
+        SrsRequest req;
+        SrsHttpHooks::parse_on_publish_response("{\"code\":0,\"data\":{\"skip_dvr_audio\":true}}", &req);
+        EXPECT_TRUE(req.skip_dvr_audio);
+        EXPECT_FALSE(req.hevc_supported);
+    }
+}
+
+VOID TEST(AppDvrTest, IgnoreAudioByRequest)
+{
+    srs_error_t err = srs_success;
+
+    SrsDvr dvr;
+    dvr.actived = true;
+    dvr.req = new SrsRequest();
+
+    HELPER_EXPECT_SUCCESS(dvr.on_audio(NULL, NULL));
+}
+
+class MockSrsDvrFileSizeConfig
+{
+public:
+    SrsConfig* previous;
+    MockSrsConfig config;
+public:
+    MockSrsDvrFileSizeConfig() {
+        previous = _srs_config;
+        _srs_config = &config;
+    }
+    virtual ~MockSrsDvrFileSizeConfig() {
+        _srs_config = previous;
+    }
+};
+
+class MockSrsDvrFileSizePlan : public SrsDvrPlan
+{
+public:
+    int nb_reaped;
+public:
+    MockSrsDvrFileSizePlan() {
+        nb_reaped = 0;
+    }
+public:
+    virtual srs_error_t on_reap_segment() {
+        nb_reaped++;
+        return srs_success;
+    }
+};
+
+class MockSrsDvrFileSizeSegmenter : public SrsDvrSegmenter
+{
+public:
+    virtual srs_error_t refresh_metadata() {
+        return srs_success;
+    }
+protected:
+    virtual srs_error_t open_encoder() {
+        return srs_success;
+    }
+    virtual srs_error_t encode_metadata(SrsSharedPtrMessage* /*metadata*/) {
+        return srs_success;
+    }
+    virtual srs_error_t encode_audio(SrsSharedPtrMessage* /*audio*/, SrsFormat* /*format*/) {
+        return srs_success;
+    }
+    virtual srs_error_t encode_video(SrsSharedPtrMessage* /*video*/, SrsFormat* /*format*/) {
+        return srs_success;
+    }
+    virtual srs_error_t close_encoder() {
+        return srs_success;
+    }
+};
+
+VOID TEST(AppDvrTest, DiscardFileAtOrBelowConfiguredMinimum)
+{
+    srs_error_t err = srs_success;
+    string path = _srs_tmp_file_prefix + "dvr-min-file-size.flv";
+    string tmp_path = path + ".tmp";
+    ::unlink(path.c_str());
+    ::unlink(tmp_path.c_str());
+
+    MockSrsDvrFileSizeConfig config;
+    SrsSetEnvConfig(config.config, dvr_min_file_size, "SRS_VHOST_DVR_DVR_MIN_FILE_SIZE", "267");
+
+    SrsRequest req;
+    req.vhost = "vhost";
+    req.app = "live";
+    req.stream = "stream";
+
+    MockSrsDvrFileSizePlan plan;
+
+    if (true) {
+        MockSrsDvrFileSizeSegmenter segmenter;
+        segmenter.req = &req;
+        segmenter.plan = &plan;
+        segmenter.fragment->set_path(path);
+
+        HELPER_ASSERT_SUCCESS(segmenter.fs->open(tmp_path));
+        char data[267] = {0};
+        HELPER_ASSERT_SUCCESS(segmenter.fs->write(data, sizeof(data), NULL));
+        HELPER_ASSERT_SUCCESS(segmenter.close());
+
+        EXPECT_FALSE(srs_path_exists(tmp_path));
+        EXPECT_FALSE(srs_path_exists(path));
+        EXPECT_EQ(0, plan.nb_reaped);
+    }
+
+    if (true) {
+        MockSrsDvrFileSizeSegmenter segmenter;
+        segmenter.req = &req;
+        segmenter.plan = &plan;
+        segmenter.fragment->set_path(path);
+
+        HELPER_ASSERT_SUCCESS(segmenter.fs->open(tmp_path));
+        char data[268] = {0};
+        HELPER_ASSERT_SUCCESS(segmenter.fs->write(data, sizeof(data), NULL));
+        HELPER_ASSERT_SUCCESS(segmenter.close());
+
+        EXPECT_FALSE(srs_path_exists(tmp_path));
+        EXPECT_TRUE(srs_path_exists(path));
+        EXPECT_EQ(1, plan.nb_reaped);
+    }
+
+    ::unlink(path.c_str());
+}
+
 class MockCoroutineHandler : public ISrsCoroutineHandler {
 public:
     SrsSTCoroutine* trd;
@@ -282,6 +516,42 @@ public:
         }
 
         return r0;
+    }
+};
+
+class MockInterruptedJoinHandler : public ISrsCoroutineHandler {
+public:
+    srs_cond_t stopped_cond;
+    bool stopped;
+public:
+    MockInterruptedJoinHandler() : stopped(false) {
+        stopped_cond = srs_cond_new();
+    }
+    virtual ~MockInterruptedJoinHandler() {
+        srs_cond_destroy(stopped_cond);
+    }
+public:
+    virtual srs_error_t cycle() {
+        MockCoroutineHandler child_handler;
+        SrsSTCoroutine child("child", &child_handler);
+        child_handler.trd = &child;
+
+        srs_error_t err = child.start();
+        if (err != srs_success) {
+            return err;
+        }
+
+        srs_cond_timedwait(child_handler.running, 100 * SRS_UTIME_MILLISECONDS);
+
+        // Simulate API kickoff: The publisher coroutine is interrupted before
+        // it enters cleanup and joins another coroutine.
+        srs_thread_interrupt(srs_thread_self());
+        child.stop();
+
+        stopped = true;
+        srs_cond_signal(stopped_cond);
+
+        return srs_success;
     }
 };
 
@@ -389,6 +659,26 @@ VOID TEST(AppCoroutineTest, StartStop)
         EXPECT_TRUE(ERROR_THREAD_STARTED == srs_error_code(err));
         srs_freep(err);
     }
+}
+
+VOID TEST(AppCoroutineTest, StopChildWhenCallerInterrupted)
+{
+    srs_error_t err = srs_success;
+
+    MockInterruptedJoinHandler ch;
+    SrsSTCoroutine sc("parent", &ch);
+
+    HELPER_ASSERT_SUCCESS(sc.start());
+
+    if (!ch.stopped) {
+        srs_cond_timedwait(ch.stopped_cond, 1 * SRS_UTIME_SECONDS);
+    }
+    EXPECT_TRUE(ch.stopped);
+
+    sc.stop();
+
+    err = sc.pull();
+    HELPER_EXPECT_SUCCESS(err);
 }
 
 VOID TEST(AppCoroutineTest, Cycle)
@@ -840,4 +1130,3 @@ VOID TEST(AppSecurity, CheckSecurity)
     //       3. allow if matches allow strategy.
     //       4. deny if matches deny strategy.
 }
-

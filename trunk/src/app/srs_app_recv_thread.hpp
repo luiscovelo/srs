@@ -122,7 +122,7 @@ public:
 
 // The publish recv thread got message and callback the source method to process message.
 // @see: https://github.com/ossrs/srs/issues/237
-class SrsPublishRecvThread : public ISrsMessagePumper, public ISrsReloadHandler
+class SrsPublishRecvThread : public ISrsMessagePumper, public ISrsReloadHandler, public ISrsReadObserver
 #ifdef SRS_PERF_MERGED_READ
     , public IMergeReadHandler
 #endif
@@ -136,6 +136,14 @@ private:
     int64_t _nb_msgs;
     // The video frames we got.
     uint64_t video_frames;
+    // Last complete RTMP audio/video message observed, using a monotonic clock.
+    int64_t last_media_observed_at_us_;
+    int8_t last_media_type_;
+    int64_t last_media_timestamp_;
+    // Successful socket refills since the last media message.
+    int64_t socket_wait_time_us_;
+    int64_t socket_reads_;
+    int64_t socket_bytes_;
     // For mr(merged read),
     bool mr;
     int mr_fd;
@@ -175,6 +183,9 @@ public:
     virtual void interrupt(srs_error_t err);
     virtual void on_start();
     virtual void on_stop();
+// Interface ISrsReadObserver
+public:
+    virtual void on_socket_read(ssize_t nread, srs_utime_t duration);
 // Interface IMergeReadHandler
 public:
 #ifdef SRS_PERF_MERGED_READ
@@ -210,4 +221,3 @@ public:
 };
 
 #endif
-

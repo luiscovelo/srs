@@ -36,9 +36,9 @@ using namespace std;
 #include <srs_app_rtc_source.hpp>
 #include <srs_app_http_hooks.hpp>
 
-#define CONST_MAX_JITTER_MS         250
-#define CONST_MAX_JITTER_MS_NEG         -250
-#define DEFAULT_FRAME_TIME_MS         10
+#define CONST_MAX_JITTER_MS          500
+#define CONST_MAX_JITTER_MS_NEG     -500
+#define DEFAULT_FRAME_TIME_MS        67
 
 // for 26ms per audio packet,
 // 115 packets is 3s.
@@ -63,6 +63,16 @@ int srs_time_jitter_string2int(std::string time_jitter)
 
 SrsRtmpJitter::SrsRtmpJitter()
 {
+    scope = "unknown";
+    last_pkt_correct_time = -1;
+    last_pkt_time = 0;
+}
+
+SrsRtmpJitter::SrsRtmpJitter(const string& app, const string& stream, const string& scope)
+{
+    this->app = app;
+    this->stream = stream;
+    this->scope = scope;
     last_pkt_correct_time = -1;
     last_pkt_time = 0;
 }
@@ -115,10 +125,22 @@ srs_error_t SrsRtmpJitter::correct(SrsSharedPtrMessage* msg, SrsRtmpJitterAlgori
      */
     int64_t time = msg->timestamp;
     int64_t delta = time - last_pkt_time;
+    bool initialized = last_pkt_correct_time >= 0;
     
     // if jitter detected, reset the delta.
     if (delta < CONST_MAX_JITTER_MS_NEG || delta > CONST_MAX_JITTER_MS) {
-        // use default 10ms to notice the problem of stream.
+        // A fresh DVR/consumer jitter context may receive a cached sequence
+        // header at timestamp zero before the current media packet. Keep the
+        // correction, but do not report that transition as publisher jitter.
+        if (initialized && last_pkt_time != 0) {
+            srs_warn("RTMP jitter detected: app=%s, stream=%s, scope=%s, type=%s, timestamp=%" PRId64 "ms, "
+                "last_pkt_time=%" PRId64 "ms, delta=%" PRId64 "ms",
+                app.c_str(), stream.c_str(), scope.c_str(), msg->is_audio()? "audio" : "video",
+                time, last_pkt_time, delta);
+        }
+
+        // use default 10ms to notice the problem of stream in the original version
+        // for itb fork, we use 67 because the most of streams works with 7 between 15 fps
         // @see https://github.com/ossrs/srs/issues/425
         delta = DEFAULT_FRAME_TIME_MS;
     }
@@ -405,11 +427,11 @@ ISrsWakable::~ISrsWakable()
 {
 }
 
-SrsLiveConsumer::SrsLiveConsumer(SrsLiveSource* s)
+SrsLiveConsumer::SrsLiveConsumer(SrsLiveSource* s, const string& app, const string& stream)
 {
     source_ = s;
     paused = false;
-    jitter = new SrsRtmpJitter();
+    jitter = new SrsRtmpJitter(app, stream, "consumer");
     queue = new SrsMessageQueue();
     should_update_source_id = false;
     
@@ -2170,6 +2192,11 @@ void SrsLiveSource::update_auth(SrsRequest* r)
     req->update_auth(r);
 }
 
+void SrsLiveSource::update_publish_controls(SrsRequest* r)
+{
+    req->update_publish_controls(r);
+}
+
 bool SrsLiveSource::can_publish(bool is_edge)
 {
     // TODO: FIXME: Should check the status of bridge.
@@ -2426,6 +2453,12 @@ srs_error_t SrsLiveSource::on_video_imp(SrsSharedPtrMessage* msg)
     if (!format_->vcodec) {
         return err;
     }
+
+#ifdef SRS_H265
+    if (!req->hevc_supported && format_->vcodec->id == SrsVideoCodecIdHEVC) {
+        return srs_error_new(ERROR_SYSTEM_PACKET_INVALID, "HEVC is not supported for stream %s", req->get_stream_url().c_str());
+    }
+#endif
     
     // whether consumer should drop for the duplicated sequence header.
     bool drop_for_reduce = false;
@@ -2690,7 +2723,7 @@ srs_error_t SrsLiveSource::create_consumer(SrsLiveConsumer*& consumer)
         }
     }
 
-    consumer = new SrsLiveConsumer(this);
+    consumer = new SrsLiveConsumer(this, req->app, req->stream);
     consumers.push_back(consumer);
 
     // There are more than one consumer, so reset the timeout.
@@ -2809,4 +2842,3 @@ string SrsLiveSource::get_curr_origin()
 {
     return play_edge->get_curr_origin();
 }
-
