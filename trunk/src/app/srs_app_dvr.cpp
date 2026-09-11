@@ -1033,7 +1033,7 @@ srs_error_t SrsDvr::on_audio(SrsSharedPtrMessage* shared_audio, SrsFormat* forma
         return srs_success;
     }
 
-    if (req && req->skip_dvr_audio) {
+    if (req && !req->audio_supported) {
         return srs_success;
     }
     

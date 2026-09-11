@@ -444,8 +444,8 @@ public:
     // used for edge traverse to origin authentication,
     // @see https://github.com/ossrs/srs/issues/104
     SrsAmf0Object* args;
-    // Whether DVR should skip audio packets for this stream.
-    bool skip_dvr_audio;
+    // Whether audio is supported for this stream. When false, DVR skips audio packets.
+    bool audio_supported;
     // Whether HEVC video packets are accepted for this stream.
     bool hevc_supported;
 public:

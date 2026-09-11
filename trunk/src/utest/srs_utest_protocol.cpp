@@ -3599,33 +3599,33 @@ VOID TEST(ProtocolRTMPTest, RequestHookFlags)
 {
     if (true) {
         SrsRequest req;
-        EXPECT_TRUE(req.skip_dvr_audio);
+        EXPECT_FALSE(req.audio_supported);
         EXPECT_FALSE(req.hevc_supported);
     }
 
     if (true) {
         SrsRequest req;
-        req.skip_dvr_audio = false;
+        req.audio_supported = true;
         req.hevc_supported = true;
 
         SrsRequest* cp = req.copy();
         SrsUniquePtr<SrsRequest> cp_uptr(cp);
-        EXPECT_FALSE(cp->skip_dvr_audio);
+        EXPECT_TRUE(cp->audio_supported);
         EXPECT_TRUE(cp->hevc_supported);
     }
 
     if (true) {
         SrsRequest req;
         SrsRequest src;
-        src.skip_dvr_audio = false;
+        src.audio_supported = true;
         src.hevc_supported = true;
 
         req.update_auth(&src);
-        EXPECT_TRUE(req.skip_dvr_audio);
+        EXPECT_FALSE(req.audio_supported);
         EXPECT_FALSE(req.hevc_supported);
 
         req.update_publish_controls(&src);
-        EXPECT_FALSE(req.skip_dvr_audio);
+        EXPECT_TRUE(req.audio_supported);
         EXPECT_TRUE(req.hevc_supported);
     }
 }

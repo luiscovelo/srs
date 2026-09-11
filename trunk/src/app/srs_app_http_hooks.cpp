@@ -173,8 +173,8 @@ void SrsHttpHooks::parse_on_publish_response(string res, SrsRequest* req)
     SrsJsonObject* obj = data->to_object();
     SrsJsonAny* prop = NULL;
 
-    if ((prop = obj->ensure_property_boolean("skip_dvr_audio")) != NULL) {
-        req->skip_dvr_audio = prop->to_boolean();
+    if ((prop = obj->ensure_property_boolean("audio_supported")) != NULL) {
+        req->audio_supported = prop->to_boolean();
     }
 
     if ((prop = obj->ensure_property_boolean("hevc_supported")) != NULL) {

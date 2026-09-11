@@ -65,7 +65,7 @@ func TestSlow_RtmpPublish_RtmpPlay_HEVC_Basic(t *testing.T) {
 	defer wg.Wait()
 
 	// Start hooks service.
-	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	hooks := NewHooksService(hooksOnPublishFlags(true, true))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -169,7 +169,7 @@ func TestSlow_RtmpPublish_HttpFlvPlay_HEVC_Basic(t *testing.T) {
 	defer wg.Wait()
 
 	// Start hooks service.
-	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	hooks := NewHooksService(hooksOnPublishFlags(true, true))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -277,7 +277,7 @@ func TestSlow_RtmpPublish_HttpTsPlay_HEVC_Basic(t *testing.T) {
 	defer wg.Wait()
 
 	// Start hooks service.
-	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	hooks := NewHooksService(hooksOnPublishFlags(true, true))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -384,7 +384,7 @@ func TestSlow_RtmpPublish_HlsPlay_HEVC_Basic(t *testing.T) {
 	defer wg.Wait()
 
 	// Start hooks service.
-	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	hooks := NewHooksService(hooksOnPublishFlags(true, true))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -485,7 +485,7 @@ func TestSlow_RtmpPublish_DvrFlv_HEVC_Basic(t *testing.T) {
 	defer wg.Wait()
 
 	// Start hooks service.
-	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	hooks := NewHooksService(hooksOnPublishFlags(true, true))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -602,7 +602,7 @@ func TestSlow_RtmpPublish_DvrMp4_HEVC_Basic(t *testing.T) {
 	defer wg.Wait()
 
 	// Start hooks service.
-	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	hooks := NewHooksService(hooksOnPublishFlags(true, true))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -725,7 +725,7 @@ func TestSlow_RtmpPublish_DvrMp4_HEVC_Unsupported(t *testing.T) {
 	defer wg.Wait()
 
 	// Reject HEVC in on_publish and require the empty DVR artifact in on_dvr.
-	hooks := NewHooksService(hooksOnPublishFlags(true, false))
+	hooks := NewHooksService(hooksOnPublishFlags(false, false))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -856,7 +856,7 @@ func TestSlow_RtmpPublish_DvrMp4_HEVC_CodecChangeUnsupported(t *testing.T) {
 	defer wg.Wait()
 
 	// AVC is accepted initially, while HEVC must be rejected after the codec change.
-	hooks := NewHooksService(hooksOnPublishFlags(true, false))
+	hooks := NewHooksService(hooksOnPublishFlags(false, false))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -980,7 +980,7 @@ func TestSlow_SrtPublish_RtmpPlay_HEVC_Basic(t *testing.T) {
 	defer wg.Wait()
 
 	// Start hooks service.
-	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	hooks := NewHooksService(hooksOnPublishFlags(true, true))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -1087,7 +1087,7 @@ func TestSlow_SrtPublish_HttpFlvPlay_HEVC_Basic(t *testing.T) {
 	defer wg.Wait()
 
 	// Start hooks service.
-	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	hooks := NewHooksService(hooksOnPublishFlags(true, true))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -1196,7 +1196,7 @@ func TestSlow_SrtPublish_HttpTsPlay_HEVC_Basic(t *testing.T) {
 	defer wg.Wait()
 
 	// Start hooks service.
-	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	hooks := NewHooksService(hooksOnPublishFlags(true, true))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -1308,7 +1308,7 @@ func TestSlow_SrtPublish_HlsPlay_HEVC_Basic(t *testing.T) {
 	defer wg.Wait()
 
 	// Start hooks service.
-	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	hooks := NewHooksService(hooksOnPublishFlags(true, true))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

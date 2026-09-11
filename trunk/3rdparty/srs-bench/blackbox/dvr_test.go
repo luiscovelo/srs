@@ -55,7 +55,7 @@ func TestFast_RtmpPublish_DvrFlv_Basic(t *testing.T) {
 	defer wg.Wait()
 
 	// Start hooks service.
-	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	hooks := NewHooksService(hooksOnPublishFlags(true, true))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -165,7 +165,7 @@ func TestFast_RtmpPublish_DvrFlv_HookIgnoreAudio(t *testing.T) {
 	defer wg.Wait()
 
 	// Start hooks service.
-	hooks := NewHooksService(hooksOnPublishFlags(true, true))
+	hooks := NewHooksService(hooksOnPublishFlags(false, true))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -281,7 +281,7 @@ func TestFast_RtmpPublish_DvrMp4_Basic(t *testing.T) {
 	defer wg.Wait()
 
 	// Start hooks service.
-	hooks := NewHooksService(hooksOnPublishFlags(false, true))
+	hooks := NewHooksService(hooksOnPublishFlags(true, true))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

@@ -1206,10 +1206,10 @@ func hooksOnPublishData(data interface{}) func(v *hooksService) {
 	}
 }
 
-func hooksOnPublishFlags(skipDvrAudio, hevcSupported bool) func(v *hooksService) {
+func hooksOnPublishFlags(audioSupported, hevcSupported bool) func(v *hooksService) {
 	return hooksOnPublishData(map[string]interface{}{
-		"skip_dvr_audio": skipDvrAudio,
-		"hevc_supported": hevcSupported,
+		"audio_supported": audioSupported,
+		"hevc_supported":  hevcSupported,
 	})
 }
 
