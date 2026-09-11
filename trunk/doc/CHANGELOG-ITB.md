@@ -5,6 +5,9 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.11, 2026-09-11, DVR/Hooks: Rename the `on_publish` audio-control field from `skip_dvr_audio` to `audio_supported`, inverting the polarity so DVR skips audio when `audio_supported` is `false`. Based on upstream v6.0.191.
+* v6.0-itb.11, 2026-09-11, Tests: Update unit and blackbox coverage for the renamed `audio_supported` hook field and inverted DVR audio-skip condition. Based on upstream v6.0.191.
+* v6.0-itb.11, 2026-09-11, Fork: Bump the fork display version to `6.0.191-itb.11`. Based on upstream v6.0.191.
 * v6.0-itb.10, 2026-08-13, Upstream: Sync the fork base from SRS v6.0.186 to the v6.0-r1 release at v6.0.191. Based on upstream v6.0.191.
 * v6.0-itb.10, 2026-08-13, WebRTC/TCP: Reject a duplicate TCP owner before replacing the active session and safely handle teardown without an owner. Based on upstream v6.0.191.
 * v6.0-itb.10, 2026-08-13, SDP: Terminate `a=ssrc-group` lines with CRLF so the following SDP attribute is not concatenated. Based on upstream v6.0.191.
