@@ -5,6 +5,9 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.12, 2026-09-15, Logs: Rename the RTMP stall and jitter warnings to the `RTMP_MEDIA_INGEST_STALL` and `RTMP_JITTER_DETECTED` keys, drop the vhost, split the stream path into separate `app` and `stream` fields, and report the stall durations as integer `elapsed_ms`, `socket_wait_ms`, and `server_time_ms` fields for backend parsing. Based on upstream v6.0.191.
+* v6.0-itb.12, 2026-09-15, Tests: Add unit coverage pinning the full `RTMP_MEDIA_INGEST_STALL` and `RTMP_JITTER_DETECTED` warning lines, covering millisecond truncation, the socket-wait and server-time split, and the clamp on negative server time. Based on upstream v6.0.191.
+* v6.0-itb.12, 2026-09-15, Fork: Bump the fork display version to `6.0.191-itb.12`. Based on upstream v6.0.191.
 * v6.0-itb.11, 2026-09-11, DVR/Hooks: Rename the `on_publish` audio-control field from `skip_dvr_audio` to `audio_supported`, inverting the polarity so DVR skips audio when `audio_supported` is `false`. Based on upstream v6.0.191.
 * v6.0-itb.11, 2026-09-11, Tests: Update unit and blackbox coverage for the renamed `audio_supported` hook field and inverted DVR audio-skip condition. Based on upstream v6.0.191.
 * v6.0-itb.11, 2026-09-11, Fork: Bump the fork display version to `6.0.191-itb.11`. Based on upstream v6.0.191.
