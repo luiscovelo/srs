@@ -16,6 +16,7 @@ using namespace std;
 #include <srs_app_statistic.hpp>
 #include <srs_app_dvr.hpp>
 #include <srs_app_http_hooks.hpp>
+#include <srs_app_recv_thread.hpp>
 #include <srs_app_source.hpp>
 #include <srs_kernel_file.hpp>
 #include <srs_kernel_flv.hpp>
@@ -100,6 +101,90 @@ VOID TEST(AppRtmpJitterTest, SuppressZeroLastPacketWarning)
     EXPECT_NE(string::npos, log.last_warn.find("stream=camera01"));
     EXPECT_NE(string::npos, log.last_warn.find("scope=consumer"));
     EXPECT_EQ(134, real_jitter.timestamp);
+}
+
+VOID TEST(AppRtmpJitterTest, DetectedWarningFormat)
+{
+    srs_error_t err = srs_success;
+    MockCountingLog log;
+    MockLogGuard guard(&log);
+    SrsRtmpJitter jitter("live", "camera01", "dvr");
+
+    SrsMessageHeader header;
+    header.initialize_video(0, 1000, 1);
+    SrsSharedPtrMessage first;
+    HELPER_EXPECT_SUCCESS(first.create(&header, NULL, 0));
+    HELPER_EXPECT_SUCCESS(jitter.correct(&first, SrsRtmpJitterAlgorithmFULL));
+    EXPECT_EQ(0, log.warns);
+
+    header.initialize_video(0, 9000, 1);
+    SrsSharedPtrMessage jittered;
+    HELPER_EXPECT_SUCCESS(jittered.create(&header, NULL, 0));
+    HELPER_EXPECT_SUCCESS(jitter.correct(&jittered, SrsRtmpJitterAlgorithmFULL));
+
+    EXPECT_EQ(1, log.warns);
+    EXPECT_STREQ("RTMP_JITTER_DETECTED: app=live, stream=camera01, scope=dvr, type=video, "
+        "timestamp=9000ms, last_pkt_time=1000ms, delta=8000ms", log.last_warn.c_str());
+}
+
+VOID TEST(AppRtmpIngestStallTest, WarningFormat)
+{
+    MockCountingLog log;
+    MockLogGuard guard(&log);
+
+    SrsRequest req;
+    req.vhost = "__defaultVhost__";
+    req.app = "l";
+    req.stream = "5776e2ba915046fc8f1e";
+    req.ip = "177.53.246.143";
+
+    // Sub-millisecond precision is truncated, not rounded, so 1048123us becomes 1048ms.
+    srs_rtmp_warn_media_ingest_stall(&req, 1048123, 1048123, 1, 296,
+        RTMP_MSG_AudioMessage, 727290, RTMP_MSG_AudioMessage, 728410);
+
+    EXPECT_EQ(1, log.warns);
+    EXPECT_STREQ("RTMP_MEDIA_INGEST_STALL: app=l, stream=5776e2ba915046fc8f1e, ip=177.53.246.143, "
+        "elapsed_ms=1048, socket_wait_ms=1048, server_time_ms=0, socket_reads=1, socket_bytes=296, "
+        "previous_ms=audio@727290, resumed_ms=audio@728410", log.last_warn.c_str());
+}
+
+VOID TEST(AppRtmpIngestStallTest, SplitSocketWaitAndServerTime)
+{
+    MockCountingLog log;
+    MockLogGuard guard(&log);
+
+    SrsRequest req;
+    req.app = "live";
+    req.stream = "livestream";
+    req.ip = "10.0.0.1";
+
+    srs_rtmp_warn_media_ingest_stall(&req, 2500 * 1000, 400 * 1000, 7, 65536,
+        RTMP_MSG_VideoMessage, 12345, RTMP_MSG_AudioMessage, 14845);
+
+    EXPECT_EQ(1, log.warns);
+    EXPECT_STREQ("RTMP_MEDIA_INGEST_STALL: app=live, stream=livestream, ip=10.0.0.1, "
+        "elapsed_ms=2500, socket_wait_ms=400, server_time_ms=2100, socket_reads=7, socket_bytes=65536, "
+        "previous_ms=video@12345, resumed_ms=audio@14845", log.last_warn.c_str());
+}
+
+VOID TEST(AppRtmpIngestStallTest, ClampNegativeServerTime)
+{
+    MockCountingLog log;
+    MockLogGuard guard(&log);
+
+    SrsRequest req;
+    req.app = "live";
+    req.stream = "livestream";
+    req.ip = "10.0.0.1";
+
+    // The socket wait may exceed the media interval by a few microseconds, never report it as negative.
+    srs_rtmp_warn_media_ingest_stall(&req, 1200 * 1000, 1300 * 1000, 2, 1024,
+        RTMP_MSG_AudioMessage, 100, 0, 1300);
+
+    EXPECT_EQ(1, log.warns);
+    EXPECT_STREQ("RTMP_MEDIA_INGEST_STALL: app=live, stream=livestream, ip=10.0.0.1, "
+        "elapsed_ms=1200, socket_wait_ms=1300, server_time_ms=0, socket_reads=2, socket_bytes=1024, "
+        "previous_ms=audio@100, resumed_ms=other@1300", log.last_warn.c_str());
 }
 
 class MockIDResource : public ISrsResource

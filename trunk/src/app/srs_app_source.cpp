@@ -133,7 +133,7 @@ srs_error_t SrsRtmpJitter::correct(SrsSharedPtrMessage* msg, SrsRtmpJitterAlgori
         // header at timestamp zero before the current media packet. Keep the
         // correction, but do not report that transition as publisher jitter.
         if (initialized && last_pkt_time != 0) {
-            srs_warn("RTMP jitter detected: app=%s, stream=%s, scope=%s, type=%s, timestamp=%" PRId64 "ms, "
+            srs_warn("RTMP_JITTER_DETECTED: app=%s, stream=%s, scope=%s, type=%s, timestamp=%" PRId64 "ms, "
                 "last_pkt_time=%" PRId64 "ms, delta=%" PRId64 "ms",
                 app.c_str(), stream.c_str(), scope.c_str(), msg->is_audio()? "audio" : "video",
                 time, last_pkt_time, delta);

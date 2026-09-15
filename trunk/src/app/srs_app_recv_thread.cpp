@@ -45,6 +45,26 @@ static const char* srs_rtmp_media_type(int8_t message_type)
     return "other";
 }
 
+void srs_rtmp_warn_media_ingest_stall(SrsRequest* req, int64_t media_interval_us,
+    int64_t socket_wait_time_us, int64_t socket_reads, int64_t socket_bytes,
+    int8_t previous_type, int64_t previous_timestamp, int8_t resumed_type, int64_t resumed_timestamp)
+{
+    // The time not spent waiting on the input socket is attributed to the server path.
+    int64_t server_time_us = srs_max((int64_t)0, media_interval_us - socket_wait_time_us);
+
+    srs_warn("RTMP_MEDIA_INGEST_STALL: app=%s, stream=%s, ip=%s, "
+        "elapsed_ms=%" PRId64 ", socket_wait_ms=%" PRId64 ", server_time_ms=%" PRId64 ", "
+        "socket_reads=%" PRId64 ", socket_bytes=%" PRId64 ", "
+        "previous_ms=%s@%" PRId64 ", resumed_ms=%s@%" PRId64,
+        req->app.c_str(), req->stream.c_str(), req->ip.c_str(),
+        srsu2ms(media_interval_us),
+        srsu2ms(socket_wait_time_us),
+        srsu2ms(server_time_us),
+        socket_reads, socket_bytes,
+        srs_rtmp_media_type(previous_type), previous_timestamp,
+        srs_rtmp_media_type(resumed_type), resumed_timestamp);
+}
+
 ISrsMessageConsumer::ISrsMessageConsumer()
 {
 }
@@ -400,20 +420,10 @@ srs_error_t SrsPublishRecvThread::consume(SrsCommonMessage* msg)
         bool ingest_stall = last_media_observed_at_us_ && media_interval_us > SRS_RTMP_INGEST_STALL_WARN;
 
         if (ingest_stall) {
-            int64_t server_time_us = media_interval_us - socket_wait_time_us_;
-            server_time_us = srs_max((int64_t)0, server_time_us);
-
-            srs_warn("RTMP media ingest stall: vhost=%s, stream=/%s/%s, ip=%s, "
-                "elapsed=%.3fs, socket_wait=%.3fs, server_time=%.3fs, "
-                "socket_reads=%" PRId64 ", socket_bytes=%" PRId64 ", "
-                "previous=%s@%" PRId64 "ms, resumed=%s@%" PRId64 "ms",
-                req->vhost.c_str(), req->app.c_str(), req->stream.c_str(), req->ip.c_str(),
-                (double)media_interval_us / SRS_UTIME_SECONDS,
-                (double)socket_wait_time_us_ / SRS_UTIME_SECONDS,
-                (double)server_time_us / SRS_UTIME_SECONDS,
+            srs_rtmp_warn_media_ingest_stall(req, media_interval_us, socket_wait_time_us_,
                 socket_reads_, socket_bytes_,
-                srs_rtmp_media_type(last_media_type_), last_media_timestamp_,
-                srs_rtmp_media_type(msg->header.message_type), msg->header.timestamp);
+                last_media_type_, last_media_timestamp_,
+                msg->header.message_type, msg->header.timestamp);
         }
 
         last_media_observed_at_us_ = observed_at_us;

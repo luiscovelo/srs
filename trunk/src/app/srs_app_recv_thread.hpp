@@ -27,6 +27,12 @@ class SrsLiveConsumer;
 class SrsHttpConn;
 class SrsHttpxConn;
 
+// Emit the RTMP media ingest stall warning, converting the microsecond measurements to the
+// millisecond fields consumed by the log parser. Exposed for utest.
+extern void srs_rtmp_warn_media_ingest_stall(SrsRequest* req, int64_t media_interval_us,
+    int64_t socket_wait_time_us, int64_t socket_reads, int64_t socket_bytes,
+    int8_t previous_type, int64_t previous_timestamp, int8_t resumed_type, int64_t resumed_timestamp);
+
 // The message consumer which consume a message.
 class ISrsMessageConsumer
 {
