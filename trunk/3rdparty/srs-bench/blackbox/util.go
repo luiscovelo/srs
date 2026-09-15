@@ -1206,10 +1206,10 @@ func hooksOnPublishData(data interface{}) func(v *hooksService) {
 	}
 }
 
-func hooksOnPublishFlags(audioSupported, hevcSupported bool) func(v *hooksService) {
+func hooksOnPublishFlags(audioEnabled, hevcSupported bool) func(v *hooksService) {
 	return hooksOnPublishData(map[string]interface{}{
-		"audio_supported": audioSupported,
-		"hevc_supported":  hevcSupported,
+		"audio_enabled":  audioEnabled,
+		"hevc_supported": hevcSupported,
 	})
 }
 

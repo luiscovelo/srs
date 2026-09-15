@@ -1466,7 +1466,7 @@ SrsRequest::SrsRequest()
     duration = -1;
     port = SRS_CONSTS_RTMP_DEFAULT_PORT;
     args = NULL;
-    audio_supported = false;
+    audio_enabled = false;
     hevc_supported = false;
 
     protocol = "rtmp";
@@ -1497,7 +1497,7 @@ SrsRequest* SrsRequest::copy()
     if (args) {
         cp->args = args->copy()->to_object();
     }
-    cp->audio_supported = audio_supported;
+    cp->audio_enabled = audio_enabled;
     cp->hevc_supported = hevc_supported;
 
     cp->protocol = protocol;
@@ -1535,7 +1535,7 @@ void SrsRequest::update_auth(SrsRequest* req)
 
 void SrsRequest::update_publish_controls(SrsRequest* req)
 {
-    audio_supported = req->audio_supported;
+    audio_enabled = req->audio_enabled;
     hevc_supported = req->hevc_supported;
 }
 

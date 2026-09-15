@@ -413,29 +413,29 @@ VOID TEST(AppHttpHooksTest, OnPublishResponseFlags)
 {
     if (true) {
         SrsRequest req;
-        SrsHttpHooks::parse_on_publish_response("{\"code\":0,\"data\":{\"audio_supported\":true,\"hevc_supported\":true}}", &req);
-        EXPECT_TRUE(req.audio_supported);
+        SrsHttpHooks::parse_on_publish_response("{\"code\":0,\"data\":{\"audio_enabled\":true,\"hevc_supported\":true}}", &req);
+        EXPECT_TRUE(req.audio_enabled);
         EXPECT_TRUE(req.hevc_supported);
     }
 
     if (true) {
         SrsRequest req;
         SrsHttpHooks::parse_on_publish_response("{\"code\":0,\"data\":{}}", &req);
-        EXPECT_FALSE(req.audio_supported);
+        EXPECT_FALSE(req.audio_enabled);
         EXPECT_FALSE(req.hevc_supported);
     }
 
     if (true) {
         SrsRequest req;
         SrsHttpHooks::parse_on_publish_response("0", &req);
-        EXPECT_FALSE(req.audio_supported);
+        EXPECT_FALSE(req.audio_enabled);
         EXPECT_FALSE(req.hevc_supported);
     }
 
     if (true) {
         SrsRequest req;
-        SrsHttpHooks::parse_on_publish_response("{\"code\":0,\"data\":{\"audio_supported\":false}}", &req);
-        EXPECT_FALSE(req.audio_supported);
+        SrsHttpHooks::parse_on_publish_response("{\"code\":0,\"data\":{\"audio_enabled\":false}}", &req);
+        EXPECT_FALSE(req.audio_enabled);
         EXPECT_FALSE(req.hevc_supported);
     }
 }
