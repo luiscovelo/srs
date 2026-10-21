@@ -40,6 +40,7 @@ class SrsCommonMessage;
 class SrsPacket;
 class SrsNetworkDelta;
 class ISrsApmSpan;
+class SrsSslConnection;
 
 // The simple rtmp client for SRS.
 class SrsSimpleRtmpClient : public SrsBasicRtmpClient
@@ -66,6 +67,43 @@ public:
 public:
     SrsClientInfo();
     virtual ~SrsClientInfo();
+};
+
+// The transport layer for RTMP connections over plain TCP.
+class SrsRtmpTransport
+{
+protected:
+    srs_netfd_t stfd_;
+    SrsTcpConnection* skt_;
+public:
+    SrsRtmpTransport(srs_netfd_t c);
+    virtual ~SrsRtmpTransport();
+public:
+    virtual srs_netfd_t fd();
+    virtual ISrsProtocolReadWriter* io();
+    virtual srs_error_t handshake();
+    virtual const char* transport_type();
+    // The transport for logs, such as "transport=ssl, tls=TLSv1.2, cipher=..., sni=...".
+    virtual std::string transport_info();
+    virtual srs_error_t set_socket_buffer(srs_utime_t buffer_v);
+    virtual srs_error_t set_tcp_nodelay(bool v);
+    virtual int64_t get_recv_bytes();
+    virtual int64_t get_send_bytes();
+};
+
+// The transport layer for RTMP connections over TLS.
+class SrsRtmpsTransport : public SrsRtmpTransport
+{
+private:
+    SrsSslConnection* ssl_;
+public:
+    SrsRtmpsTransport(srs_netfd_t c);
+    virtual ~SrsRtmpsTransport();
+public:
+    virtual ISrsProtocolReadWriter* io();
+    virtual srs_error_t handshake();
+    virtual const char* transport_type();
+    virtual std::string transport_info();
 };
 
 // The client provides the main logic control for RTMP clients.
@@ -105,8 +143,7 @@ private:
     // About the rtmp client.
     SrsClientInfo* info;
 private:
-    srs_netfd_t stfd;
-    SrsTcpConnection* skt;
+    SrsRtmpTransport* transport_;
     // Each connection start a green thread,
     // when thread stop, the connection will be delete by server.
     SrsCoroutine* trd;
@@ -126,7 +163,7 @@ private:
     ISrsApmSpan* span_connect_;
     ISrsApmSpan* span_client_;
 public:
-    SrsRtmpConn(SrsServer* svr, srs_netfd_t c, std::string cip, int port);
+    SrsRtmpConn(SrsServer* svr, SrsRtmpTransport* transport, std::string cip, int port);
     virtual ~SrsRtmpConn();
 // Interface ISrsResource.
 public:

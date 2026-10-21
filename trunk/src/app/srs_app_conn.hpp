@@ -277,11 +277,23 @@ private:
     SSL* ssl;
     BIO* bio_in;
     BIO* bio_out;
+    // The TLS versions the client offers in its ClientHello, such as "TLSv1.3|TLSv1.2".
+    std::string client_versions_;
 public:
     SrsSslConnection(ISrsProtocolReadWriter* c);
     virtual ~SrsSslConnection();
 public:
     virtual srs_error_t handshake(std::string key_file, std::string crt_file);
+    // The negotiated TLS version and cipher, and the SNI sent by the client, after the handshake.
+    virtual std::string tls_version();
+    virtual std::string tls_cipher();
+    virtual std::string tls_server_name();
+    // The TLS versions the client offers, known once its ClientHello is received, even if the
+    // handshake then fails. A client without the supported_versions extension offers one version,
+    // the highest it supports, as TLS 1.2 and older clients do.
+    virtual std::string tls_client_versions();
+private:
+    static int on_client_hello(SSL* ssl, int* al, void* arg);
 // Interface ISrsProtocolReadWriter
 public:
     virtual void set_recv_timeout(srs_utime_t tm);

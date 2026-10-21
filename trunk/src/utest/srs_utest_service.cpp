@@ -23,8 +23,14 @@ using namespace std;
 #include <srs_protocol_http_client.hpp>
 #include <srs_protocol_rtmp_conn.hpp>
 #include <srs_protocol_conn.hpp>
+#include <srs_app_conn.hpp>
+#include <srs_app_rtmp_conn.hpp>
+#include <srs_kernel_utility.hpp>
+#include <openssl/ssl.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include <string.h>
 #include <st.h>
 
 MockSrsConnection::MockSrsConnection()
@@ -63,6 +69,247 @@ VOID TEST(ServiceTimeTest, TimeUnit)
 
     EXPECT_TRUE(srs_is_never_timeout(SRS_UTIME_NO_TIMEOUT));
     EXPECT_FALSE(srs_is_never_timeout(0));
+}
+
+class MockFragmentedSslConnection : public SrsSslConnection
+{
+private:
+    string data_;
+    size_t pos_;
+public:
+    int read_calls_;
+public:
+    MockFragmentedSslConnection(string data) : SrsSslConnection(NULL)
+    {
+        data_ = data;
+        pos_ = 0;
+        read_calls_ = 0;
+    }
+public:
+    virtual srs_error_t read(void* buf, size_t size, ssize_t* nread)
+    {
+        read_calls_++;
+
+        size_t nn = data_.size() - pos_;
+        if (nn > size) nn = size;
+        if (nn > 2) nn = 2;
+        if (!nn) return srs_error_new(ERROR_SOCKET_READ, "no more data");
+
+        ::memcpy(buf, data_.data() + pos_, nn);
+        pos_ += nn;
+        if (nread) *nread = nn;
+
+        return srs_success;
+    }
+};
+
+VOID TEST(TlsConnectionTest, ReadFullyUsesDecryptedReadPath)
+{
+    srs_error_t err;
+
+    MockFragmentedSslConnection ssl("Hello SRS");
+    char buf[10] = {0};
+    ssize_t nread = 0;
+
+    HELPER_ASSERT_SUCCESS(ssl.read_fully(buf, 9, &nread));
+    EXPECT_EQ(9, nread);
+    EXPECT_STREQ("Hello SRS", buf);
+    EXPECT_EQ(5, ssl.read_calls_);
+}
+
+VOID TEST(RtmpTransportTest, DefaultTimeouts)
+{
+    int fds[2];
+    ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+    ::close(fds[1]);
+
+    SrsRtmpsTransport transport(srs_netfd_open_socket(fds[0]));
+    EXPECT_EQ(SRS_CONSTS_RTMP_TIMEOUT, transport.io()->get_recv_timeout());
+    EXPECT_EQ(SRS_CONSTS_RTMP_TIMEOUT, transport.io()->get_send_timeout());
+
+    ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+    ::close(fds[1]);
+
+    SrsRtmpTransport plain(srs_netfd_open_socket(fds[0]));
+    EXPECT_EQ(SRS_CONSTS_RTMP_TIMEOUT, plain.io()->get_recv_timeout());
+    EXPECT_EQ(SRS_CONSTS_RTMP_TIMEOUT, plain.io()->get_send_timeout());
+}
+
+// Run the RTMPS handshake against a peer that sends the data then stays idle, which must time out
+// instead of holding the connection forever. The cert and key are ./conf/server.*, so run in trunk.
+static void expect_rtmps_handshake_timeout(string data)
+{
+    int fds[2];
+    ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+    if (!data.empty()) {
+        ASSERT_EQ((ssize_t)data.size(), ::write(fds[1], data.data(), data.size()));
+    }
+
+    SrsRtmpsTransport transport(srs_netfd_open_socket(fds[0]));
+    transport.io()->set_recv_timeout(100 * SRS_UTIME_MILLISECONDS);
+
+    srs_utime_t starttime = srs_update_system_time();
+    srs_error_t err = transport.handshake();
+    srs_utime_t elapsed = srs_update_system_time() - starttime;
+    ::close(fds[1]);
+
+    ASSERT_TRUE(err != srs_success);
+    int code = srs_error_code(err);
+    string desc = srs_error_desc(err);
+    srs_freep(err);
+
+    EXPECT_EQ(ERROR_SOCKET_TIMEOUT, code) << desc;
+    EXPECT_LT(elapsed, 3 * SRS_UTIME_SECONDS);
+}
+
+// A TLS client in a coroutine, because the bundled OpenSSL is built without threads.
+struct MockTlsClient
+{
+    srs_netfd_t stfd;
+    string sni;
+    // The TLS versions the client accepts, 0 for the default of OpenSSL.
+    int min_version;
+    int max_version;
+    string cipher;
+    bool ok;
+};
+
+static void* mock_tls_client_cycle(void* arg)
+{
+    MockTlsClient* c = (MockTlsClient*)arg;
+    c->ok = false;
+
+    SSL_CTX* ctx = SSL_CTX_new(TLS_client_method());
+    SSL* ssl = SSL_new(ctx);
+    SSL_set_fd(ssl, srs_netfd_fileno(c->stfd));
+    if (!c->sni.empty()) {
+        SSL_set_tlsext_host_name(ssl, c->sni.c_str());
+    }
+    if (c->min_version) {
+        SSL_set_min_proto_version(ssl, c->min_version);
+    }
+    if (c->max_version) {
+        SSL_set_max_proto_version(ssl, c->max_version);
+    }
+
+    for (int i = 0; i < 100; i++) {
+        int r0 = SSL_connect(ssl);
+        if (r0 == 1) {
+            c->ok = true;
+            c->cipher = SSL_get_cipher_name(ssl);
+            break;
+        }
+
+        int r1 = SSL_get_error(ssl, r0);
+        if (r1 != SSL_ERROR_WANT_READ && r1 != SSL_ERROR_WANT_WRITE) {
+            break;
+        }
+        if (st_netfd_poll((st_netfd_t)c->stfd, r1 == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT, 3 * SRS_UTIME_SECONDS) != 0) {
+            break;
+        }
+    }
+
+    SSL_free(ssl);
+    SSL_CTX_free(ctx);
+    return NULL;
+}
+
+// Do a real RTMPS transport handshake with a TLS client, and get the transport info for logs, or the
+// handshake error. The cert and key are ./conf/server.*, so run in trunk.
+static void do_rtmps_handshake(MockTlsClient& client, string& info, string& error)
+{
+    int fds[2];
+    ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+
+    client.stfd = srs_netfd_open_socket(fds[1]);
+    st_thread_t trd = st_thread_create(mock_tls_client_cycle, &client, 1, 0);
+    ASSERT_TRUE(trd != NULL);
+
+    // Free the transport before joining the client, so a client the server refused sees the close.
+    if (true) {
+        SrsRtmpsTransport transport(srs_netfd_open_socket(fds[0]));
+        transport.io()->set_recv_timeout(3 * SRS_UTIME_SECONDS);
+
+        srs_error_t err = transport.handshake();
+        if (err != srs_success) {
+            error = srs_error_desc(err);
+            srs_freep(err);
+        } else {
+            info = transport.transport_info();
+        }
+    }
+
+    st_thread_join(trd, NULL);
+    srs_close_stfd(client.stfd);
+}
+
+static void expect_rtmps_transport_info(string sni, int min_version, int max_version, string expect_client_tls, string expect_sni)
+{
+    MockTlsClient client;
+    client.sni = sni;
+    client.min_version = min_version;
+    client.max_version = max_version;
+
+    string info, error;
+    do_rtmps_handshake(client, info, error);
+    ASSERT_TRUE(error.empty()) << error;
+    ASSERT_TRUE(client.ok);
+    ASSERT_FALSE(client.cipher.empty());
+
+    string expect = "transport=ssl, tls=TLSv1.2, client_tls=" + expect_client_tls + ", cipher=" + client.cipher + ", sni=" + expect_sni;
+    EXPECT_STREQ(expect.c_str(), info.c_str());
+}
+
+VOID TEST(RtmpTransportTest, TransportInfo)
+{
+    // Before the handshake, there is no TLS session.
+    if (true) {
+        SrsSslConnection ssl(NULL);
+        EXPECT_STREQ("", ssl.tls_version().c_str());
+        EXPECT_STREQ("", ssl.tls_cipher().c_str());
+        EXPECT_STREQ("", ssl.tls_server_name().c_str());
+        EXPECT_STREQ("", ssl.tls_client_versions().c_str());
+    }
+
+    if (true) {
+        int fds[2];
+        ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+        ::close(fds[1]);
+
+        SrsRtmpTransport plain(srs_netfd_open_socket(fds[0]));
+        EXPECT_STREQ("transport=plaintext", plain.transport_info().c_str());
+    }
+
+    // A client that accepts TLS 1.2 and 1.3 negotiates TLS 1.2, but offers both.
+    expect_rtmps_transport_info("rtmps.example.com", TLS1_2_VERSION, 0, "TLSv1.3|TLSv1.2", "rtmps.example.com");
+
+    // A client that connects by IP sends no SNI.
+    expect_rtmps_transport_info("", TLS1_2_VERSION, 0, "TLSv1.3|TLSv1.2", "none");
+
+    // A client up to TLS 1.2 has no supported_versions extension, so it offers only its highest version.
+    expect_rtmps_transport_info("", 0, TLS1_2_VERSION, "TLSv1.2", "none");
+}
+
+VOID TEST(RtmpTransportTest, RtmpsHandshakeFailsForTls13OnlyClient)
+{
+    // The server only speaks TLS 1.2, so the error tells the client only accepts TLS 1.3.
+    MockTlsClient client;
+    client.min_version = TLS1_3_VERSION;
+    client.max_version = 0;
+
+    string info, error;
+    do_rtmps_handshake(client, info, error);
+    EXPECT_FALSE(client.ok);
+    EXPECT_TRUE(error.find("client_tls=TLSv1.3") != string::npos) << error;
+}
+
+VOID TEST(RtmpTransportTest, RtmpsHandshakeTimesOut)
+{
+    // A client that connects and sends nothing.
+    expect_rtmps_handshake_timeout("");
+
+    // A client that sends only the header of a ClientHello record.
+    expect_rtmps_handshake_timeout(string("\x16\x03\x01\x02\x00", 5));
 }
 
 class MockTcpHandler : public ISrsTcpHandler
