@@ -2478,7 +2478,24 @@ srs_error_t SrsConfig::check_normal_config()
             }
         }
     }
-    
+
+    ////////////////////////////////////////////////////////////////////////
+    // check listen for rtmps.
+    ////////////////////////////////////////////////////////////////////////
+    if (get_rtmps_enabled()) {
+        vector<string> listens = get_rtmps_listen();
+        for (int i = 0; i < (int)listens.size(); i++) {
+            int port; string ip;
+            srs_parse_endpoint(listens[i], ip, port);
+
+            // A port is 16 bits, so a larger one is not refused by every resolver: some
+            // cut it to 16 bits and would listen on another port.
+            if (!srs_check_ip_addr_valid(ip) || port <= 0 || port > 65535) {
+                return srs_error_new(ERROR_SYSTEM_CONFIG_INVALID, "rtmps.listen=%s is invalid", listens[i].c_str());
+            }
+        }
+    }
+
     ////////////////////////////////////////////////////////////////////////
     // check heartbeat
     ////////////////////////////////////////////////////////////////////////
@@ -8948,18 +8965,26 @@ vector<string> SrsConfig::get_rtmps_listen()
 
     vector<string> ports;
 
+    static string DEFAULT = "1443";
+
     SrsConfDirective* conf = get_rtmps();
     if (!conf) {
+        ports.push_back(DEFAULT);
         return ports;
     }
 
     conf = conf->get("listen");
     if (!conf) {
+        ports.push_back(DEFAULT);
         return ports;
     }
 
     for (int i = 0; i < (int)conf->args.size(); i++) {
         ports.push_back(conf->args.at(i));
+    }
+
+    if (ports.empty()) {
+        ports.push_back(DEFAULT);
     }
 
     return ports;
