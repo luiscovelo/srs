@@ -172,7 +172,9 @@ srs_error_t SrsRtmpsTransport::handshake()
 
     srs_error_t err = ssl_->handshake(key_file, crt_file);
     if (err != srs_success) {
-        return srs_error_wrap(err, "ssl handshake");
+        // The versions the client offers tell why it fails, such as a client that only accepts TLS 1.3.
+        string versions = ssl_->tls_client_versions();
+        return srs_error_wrap(err, "ssl handshake, client_tls=%s", versions.empty() ? "none" : versions.c_str());
     }
 
     return srs_success;
@@ -186,8 +188,8 @@ const char* SrsRtmpsTransport::transport_type()
 string SrsRtmpsTransport::transport_info()
 {
     string sni = ssl_->tls_server_name();
-    return srs_fmt("transport=%s, tls=%s, cipher=%s, sni=%s", transport_type(), ssl_->tls_version().c_str(),
-        ssl_->tls_cipher().c_str(), sni.empty() ? "none" : sni.c_str());
+    return srs_fmt("transport=%s, tls=%s, client_tls=%s, cipher=%s, sni=%s", transport_type(), ssl_->tls_version().c_str(),
+        ssl_->tls_client_versions().c_str(), ssl_->tls_cipher().c_str(), sni.empty() ? "none" : sni.c_str());
 }
 
 SrsRtmpConn::SrsRtmpConn(SrsServer* svr, SrsRtmpTransport* transport, string cip, int cport)

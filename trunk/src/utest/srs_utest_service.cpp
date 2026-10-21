@@ -167,6 +167,9 @@ struct MockTlsClient
 {
     srs_netfd_t stfd;
     string sni;
+    // The TLS versions the client accepts, 0 for the default of OpenSSL.
+    int min_version;
+    int max_version;
     string cipher;
     bool ok;
 };
@@ -182,6 +185,12 @@ static void* mock_tls_client_cycle(void* arg)
     if (!c->sni.empty()) {
         SSL_set_tlsext_host_name(ssl, c->sni.c_str());
     }
+    if (c->min_version) {
+        SSL_set_min_proto_version(ssl, c->min_version);
+    }
+    if (c->max_version) {
+        SSL_set_max_proto_version(ssl, c->max_version);
+    }
 
     for (int i = 0; i < 100; i++) {
         int r0 = SSL_connect(ssl);
@@ -195,7 +204,9 @@ static void* mock_tls_client_cycle(void* arg)
         if (r1 != SSL_ERROR_WANT_READ && r1 != SSL_ERROR_WANT_WRITE) {
             break;
         }
-        st_netfd_poll((st_netfd_t)c->stfd, r1 == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT, 3 * SRS_UTIME_SECONDS);
+        if (st_netfd_poll((st_netfd_t)c->stfd, r1 == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT, 3 * SRS_UTIME_SECONDS) != 0) {
+            break;
+        }
     }
 
     SSL_free(ssl);
@@ -203,32 +214,50 @@ static void* mock_tls_client_cycle(void* arg)
     return NULL;
 }
 
-// Do a real RTMPS transport handshake with a TLS client, and expect the transport info for logs.
-// The cert and key are ./conf/server.*, so run in trunk.
-static void expect_rtmps_transport_info(string sni, string expect_sni)
+// Do a real RTMPS transport handshake with a TLS client, and get the transport info for logs, or the
+// handshake error. The cert and key are ./conf/server.*, so run in trunk.
+static void do_rtmps_handshake(MockTlsClient& client, string& info, string& error)
 {
     int fds[2];
     ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
 
-    MockTlsClient client;
     client.stfd = srs_netfd_open_socket(fds[1]);
-    client.sni = sni;
     st_thread_t trd = st_thread_create(mock_tls_client_cycle, &client, 1, 0);
     ASSERT_TRUE(trd != NULL);
 
-    SrsRtmpsTransport transport(srs_netfd_open_socket(fds[0]));
-    transport.io()->set_recv_timeout(3 * SRS_UTIME_SECONDS);
-    srs_error_t err = transport.handshake();
+    // Free the transport before joining the client, so a client the server refused sees the close.
+    if (true) {
+        SrsRtmpsTransport transport(srs_netfd_open_socket(fds[0]));
+        transport.io()->set_recv_timeout(3 * SRS_UTIME_SECONDS);
+
+        srs_error_t err = transport.handshake();
+        if (err != srs_success) {
+            error = srs_error_desc(err);
+            srs_freep(err);
+        } else {
+            info = transport.transport_info();
+        }
+    }
 
     st_thread_join(trd, NULL);
     srs_close_stfd(client.stfd);
+}
 
-    HELPER_ASSERT_SUCCESS(err);
+static void expect_rtmps_transport_info(string sni, int min_version, int max_version, string expect_client_tls, string expect_sni)
+{
+    MockTlsClient client;
+    client.sni = sni;
+    client.min_version = min_version;
+    client.max_version = max_version;
+
+    string info, error;
+    do_rtmps_handshake(client, info, error);
+    ASSERT_TRUE(error.empty()) << error;
     ASSERT_TRUE(client.ok);
     ASSERT_FALSE(client.cipher.empty());
 
-    string expect = "transport=ssl, tls=TLSv1.2, cipher=" + client.cipher + ", sni=" + expect_sni;
-    EXPECT_STREQ(expect.c_str(), transport.transport_info().c_str());
+    string expect = "transport=ssl, tls=TLSv1.2, client_tls=" + expect_client_tls + ", cipher=" + client.cipher + ", sni=" + expect_sni;
+    EXPECT_STREQ(expect.c_str(), info.c_str());
 }
 
 VOID TEST(RtmpTransportTest, TransportInfo)
@@ -239,6 +268,7 @@ VOID TEST(RtmpTransportTest, TransportInfo)
         EXPECT_STREQ("", ssl.tls_version().c_str());
         EXPECT_STREQ("", ssl.tls_cipher().c_str());
         EXPECT_STREQ("", ssl.tls_server_name().c_str());
+        EXPECT_STREQ("", ssl.tls_client_versions().c_str());
     }
 
     if (true) {
@@ -250,10 +280,27 @@ VOID TEST(RtmpTransportTest, TransportInfo)
         EXPECT_STREQ("transport=plaintext", plain.transport_info().c_str());
     }
 
-    expect_rtmps_transport_info("rtmps.example.com", "rtmps.example.com");
+    // A client that accepts TLS 1.2 and 1.3 negotiates TLS 1.2, but offers both.
+    expect_rtmps_transport_info("rtmps.example.com", TLS1_2_VERSION, 0, "TLSv1.3|TLSv1.2", "rtmps.example.com");
 
     // A client that connects by IP sends no SNI.
-    expect_rtmps_transport_info("", "none");
+    expect_rtmps_transport_info("", TLS1_2_VERSION, 0, "TLSv1.3|TLSv1.2", "none");
+
+    // A client up to TLS 1.2 has no supported_versions extension, so it offers only its highest version.
+    expect_rtmps_transport_info("", 0, TLS1_2_VERSION, "TLSv1.2", "none");
+}
+
+VOID TEST(RtmpTransportTest, RtmpsHandshakeFailsForTls13OnlyClient)
+{
+    // The server only speaks TLS 1.2, so the error tells the client only accepts TLS 1.3.
+    MockTlsClient client;
+    client.min_version = TLS1_3_VERSION;
+    client.max_version = 0;
+
+    string info, error;
+    do_rtmps_handshake(client, info, error);
+    EXPECT_FALSE(client.ok);
+    EXPECT_TRUE(error.find("client_tls=TLSv1.3") != string::npos) << error;
 }
 
 VOID TEST(RtmpTransportTest, RtmpsHandshakeTimesOut)

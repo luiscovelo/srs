@@ -725,6 +725,9 @@ srs_error_t SrsSslConnection::handshake(string key_file, string crt_file)
 #endif
     SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
     srs_assert(SSL_CTX_set_cipher_list(ssl_ctx, "ALL") == 1);
+#if (OPENSSL_VERSION_NUMBER >= 0x10101000L) // v1.1.1
+    SSL_CTX_set_client_hello_cb(ssl_ctx, on_client_hello, this);
+#endif
 
     // TODO: Setup callback, see SSL_set_ex_data and SSL_set_info_callback
     if ((ssl = SSL_new(ssl_ctx)) == NULL) {
@@ -872,6 +875,50 @@ string SrsSslConnection::tls_server_name()
 {
     const char* v = ssl ? SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name) : NULL;
     return v ? v : "";
+}
+
+string SrsSslConnection::tls_client_versions()
+{
+    return client_versions_;
+}
+
+static string srs_tls_version_string(int v)
+{
+    switch (v) {
+        case 0x0304: return "TLSv1.3";
+        case 0x0303: return "TLSv1.2";
+        case 0x0302: return "TLSv1.1";
+        case 0x0301: return "TLSv1";
+        case 0x0300: return "SSLv3";
+        default: return srs_fmt("0x%04x", v);
+    }
+}
+
+int SrsSslConnection::on_client_hello(SSL* ssl, int* al, void* arg)
+{
+#if (OPENSSL_VERSION_NUMBER >= 0x10101000L) // v1.1.1
+    SrsSslConnection* conn = (SrsSslConnection*)arg;
+    conn->client_versions_ = "";
+
+    // The supported_versions extension is a 1-byte length, then the 2-byte versions.
+    const unsigned char* ext = NULL; size_t size = 0;
+    if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_supported_versions, &ext, &size) && size >= 1 && ext[0] + 1 <= (int)size) {
+        for (int i = 1; i + 1 < ext[0] + 1; i += 2) {
+            int v = (ext[i] << 8) | ext[i + 1];
+            // Ignore the GREASE values, such as 0x0a0a, see RFC 8701.
+            if ((v & 0x0f0f) == 0x0a0a) {
+                continue;
+            }
+            conn->client_versions_ += (conn->client_versions_.empty() ? "" : "|") + srs_tls_version_string(v);
+        }
+    }
+
+    if (conn->client_versions_.empty()) {
+        conn->client_versions_ = srs_tls_version_string(SSL_client_hello_get0_legacy_version(ssl));
+    }
+#endif
+
+    return 1; // SSL_CLIENT_HELLO_SUCCESS
 }
 
 void SrsSslConnection::set_recv_timeout(srs_utime_t tm)
