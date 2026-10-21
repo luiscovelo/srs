@@ -5,6 +5,13 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.14, 2026-10-21, RTMPS: Backport the RTMPS server from upstream [#4443](https://github.com/ossrs/srs/pull/4443), with a dedicated `rtmps` listener, TLS transport and `enabled`, `listen`, `key` and `cert` directives, while plain RTMP is unchanged. Based on upstream v6.0.191.
+* v6.0-itb.14, 2026-10-21, RTMPS: Default `rtmps.listen` to `1443` when it is missing or empty, and refuse an enabled RTMPS whose listen is not a valid `[ip:]port` endpoint. Based on upstream v6.0.191.
+* v6.0-itb.14, 2026-10-21, TLS: Treat a peer `close_notify` as a graceful disconnect, backported from upstream [#4036](https://github.com/ossrs/srs/issues/4036), and fix `SrsSslConnection::read_fully` to consume the decrypted bytes. Based on upstream v6.0.191.
+* v6.0-itb.14, 2026-10-21, TLS: Time out the RTMPS TLS handshake after 30 seconds, so idle clients can no longer hold connections and exhaust `max_connections`. Based on upstream v6.0.191.
+* v6.0-itb.14, 2026-10-21, Logs: Append the transport to the RTMP `client identified` line, with the negotiated TLS version, the TLS versions the client offers, the cipher and the SNI for RTMPS, and report the offered TLS versions when the RTMPS handshake fails. Based on upstream v6.0.191.
+* v6.0-itb.14, 2026-10-21, Tests: Add unit coverage for the RTMPS configuration and listen validation, the TLS handshake timeout, and the logged transport and TLS details against a real TLS client. Based on upstream v6.0.191.
+* v6.0-itb.14, 2026-10-21, Fork: Bump the fork display version to `6.0.191-itb.14`. Based on upstream v6.0.191.
 * v6.0-itb.13, 2026-09-15, DVR/Hooks: Rename the `on_publish` audio-control field from `audio_supported` to `audio_enabled`, keeping the polarity so DVR skips audio when `audio_enabled` is `false`. Based on upstream v6.0.191.
 * v6.0-itb.13, 2026-09-15, Tests: Update unit and blackbox coverage for the renamed `audio_enabled` hook field. Based on upstream v6.0.191.
 * v6.0-itb.13, 2026-09-15, Fork: Bump the fork display version to `6.0.191-itb.13`. Based on upstream v6.0.191.
