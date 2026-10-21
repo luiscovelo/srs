@@ -26,6 +26,8 @@ using namespace std;
 #include <srs_app_conn.hpp>
 #include <srs_app_rtmp_conn.hpp>
 #include <srs_kernel_utility.hpp>
+#include <openssl/ssl.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <string.h>
@@ -158,6 +160,100 @@ static void expect_rtmps_handshake_timeout(string data)
 
     EXPECT_EQ(ERROR_SOCKET_TIMEOUT, code) << desc;
     EXPECT_LT(elapsed, 3 * SRS_UTIME_SECONDS);
+}
+
+// A TLS client in a coroutine, because the bundled OpenSSL is built without threads.
+struct MockTlsClient
+{
+    srs_netfd_t stfd;
+    string sni;
+    string cipher;
+    bool ok;
+};
+
+static void* mock_tls_client_cycle(void* arg)
+{
+    MockTlsClient* c = (MockTlsClient*)arg;
+    c->ok = false;
+
+    SSL_CTX* ctx = SSL_CTX_new(TLS_client_method());
+    SSL* ssl = SSL_new(ctx);
+    SSL_set_fd(ssl, srs_netfd_fileno(c->stfd));
+    if (!c->sni.empty()) {
+        SSL_set_tlsext_host_name(ssl, c->sni.c_str());
+    }
+
+    for (int i = 0; i < 100; i++) {
+        int r0 = SSL_connect(ssl);
+        if (r0 == 1) {
+            c->ok = true;
+            c->cipher = SSL_get_cipher_name(ssl);
+            break;
+        }
+
+        int r1 = SSL_get_error(ssl, r0);
+        if (r1 != SSL_ERROR_WANT_READ && r1 != SSL_ERROR_WANT_WRITE) {
+            break;
+        }
+        st_netfd_poll((st_netfd_t)c->stfd, r1 == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT, 3 * SRS_UTIME_SECONDS);
+    }
+
+    SSL_free(ssl);
+    SSL_CTX_free(ctx);
+    return NULL;
+}
+
+// Do a real RTMPS transport handshake with a TLS client, and expect the transport info for logs.
+// The cert and key are ./conf/server.*, so run in trunk.
+static void expect_rtmps_transport_info(string sni, string expect_sni)
+{
+    int fds[2];
+    ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+
+    MockTlsClient client;
+    client.stfd = srs_netfd_open_socket(fds[1]);
+    client.sni = sni;
+    st_thread_t trd = st_thread_create(mock_tls_client_cycle, &client, 1, 0);
+    ASSERT_TRUE(trd != NULL);
+
+    SrsRtmpsTransport transport(srs_netfd_open_socket(fds[0]));
+    transport.io()->set_recv_timeout(3 * SRS_UTIME_SECONDS);
+    srs_error_t err = transport.handshake();
+
+    st_thread_join(trd, NULL);
+    srs_close_stfd(client.stfd);
+
+    HELPER_ASSERT_SUCCESS(err);
+    ASSERT_TRUE(client.ok);
+    ASSERT_FALSE(client.cipher.empty());
+
+    string expect = "transport=ssl, tls=TLSv1.2, cipher=" + client.cipher + ", sni=" + expect_sni;
+    EXPECT_STREQ(expect.c_str(), transport.transport_info().c_str());
+}
+
+VOID TEST(RtmpTransportTest, TransportInfo)
+{
+    // Before the handshake, there is no TLS session.
+    if (true) {
+        SrsSslConnection ssl(NULL);
+        EXPECT_STREQ("", ssl.tls_version().c_str());
+        EXPECT_STREQ("", ssl.tls_cipher().c_str());
+        EXPECT_STREQ("", ssl.tls_server_name().c_str());
+    }
+
+    if (true) {
+        int fds[2];
+        ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+        ::close(fds[1]);
+
+        SrsRtmpTransport plain(srs_netfd_open_socket(fds[0]));
+        EXPECT_STREQ("transport=plaintext", plain.transport_info().c_str());
+    }
+
+    expect_rtmps_transport_info("rtmps.example.com", "rtmps.example.com");
+
+    // A client that connects by IP sends no SNI.
+    expect_rtmps_transport_info("", "none");
 }
 
 VOID TEST(RtmpTransportTest, RtmpsHandshakeTimesOut)

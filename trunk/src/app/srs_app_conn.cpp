@@ -856,6 +856,24 @@ srs_error_t SrsSslConnection::handshake(string key_file, string crt_file)
 }
 #pragma GCC diagnostic pop
 
+string SrsSslConnection::tls_version()
+{
+    const char* v = ssl ? SSL_get_version(ssl) : NULL;
+    return v ? v : "";
+}
+
+string SrsSslConnection::tls_cipher()
+{
+    const char* v = ssl ? SSL_get_cipher_name(ssl) : NULL;
+    return v ? v : "";
+}
+
+string SrsSslConnection::tls_server_name()
+{
+    const char* v = ssl ? SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name) : NULL;
+    return v ? v : "";
+}
+
 void SrsSslConnection::set_recv_timeout(srs_utime_t tm)
 {
     transport->set_recv_timeout(tm);

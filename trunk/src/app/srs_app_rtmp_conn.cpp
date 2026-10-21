@@ -125,6 +125,11 @@ const char* SrsRtmpTransport::transport_type()
     return "plaintext";
 }
 
+string SrsRtmpTransport::transport_info()
+{
+    return srs_fmt("transport=%s", transport_type());
+}
+
 srs_error_t SrsRtmpTransport::set_socket_buffer(srs_utime_t buffer_v)
 {
     return skt_->set_socket_buffer(buffer_v);
@@ -176,6 +181,13 @@ srs_error_t SrsRtmpsTransport::handshake()
 const char* SrsRtmpsTransport::transport_type()
 {
     return "ssl";
+}
+
+string SrsRtmpsTransport::transport_info()
+{
+    string sni = ssl_->tls_server_name();
+    return srs_fmt("transport=%s, tls=%s, cipher=%s, sni=%s", transport_type(), ssl_->tls_version().c_str(),
+        ssl_->tls_cipher().c_str(), sni.empty() ? "none" : sni.c_str());
 }
 
 SrsRtmpConn::SrsRtmpConn(SrsServer* svr, SrsRtmpTransport* transport, string cip, int cport)
@@ -599,8 +611,9 @@ srs_error_t SrsRtmpConn::stream_service_cycle()
     }
 
     req->strip();
-    srs_trace("client identified, type=%s, vhost=%s, app=%s, stream=%s, param=%s, duration=%dms",
-        srs_client_type_string(info->type).c_str(), req->vhost.c_str(), req->app.c_str(), req->stream.c_str(), req->param.c_str(), srsu2msi(req->duration));
+    srs_trace("client identified, type=%s, vhost=%s, app=%s, stream=%s, param=%s, duration=%dms, %s",
+        srs_client_type_string(info->type).c_str(), req->vhost.c_str(), req->app.c_str(), req->stream.c_str(), req->param.c_str(), srsu2msi(req->duration),
+        transport_->transport_info().c_str());
 
 #ifdef SRS_APM
     // Start APM only when client is identified, because it might republish.

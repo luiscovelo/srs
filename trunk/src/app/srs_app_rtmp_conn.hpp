@@ -83,6 +83,8 @@ public:
     virtual ISrsProtocolReadWriter* io();
     virtual srs_error_t handshake();
     virtual const char* transport_type();
+    // The transport for logs, such as "transport=ssl, tls=TLSv1.2, cipher=..., sni=...".
+    virtual std::string transport_info();
     virtual srs_error_t set_socket_buffer(srs_utime_t buffer_v);
     virtual srs_error_t set_tcp_nodelay(bool v);
     virtual int64_t get_recv_bytes();
@@ -101,6 +103,7 @@ public:
     virtual ISrsProtocolReadWriter* io();
     virtual srs_error_t handshake();
     virtual const char* transport_type();
+    virtual std::string transport_info();
 };
 
 // The client provides the main logic control for RTMP clients.

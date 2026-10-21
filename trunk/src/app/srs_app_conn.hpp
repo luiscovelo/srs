@@ -282,6 +282,10 @@ public:
     virtual ~SrsSslConnection();
 public:
     virtual srs_error_t handshake(std::string key_file, std::string crt_file);
+    // The negotiated TLS version and cipher, and the SNI sent by the client, after the handshake.
+    virtual std::string tls_version();
+    virtual std::string tls_cipher();
+    virtual std::string tls_server_name();
 // Interface ISrsProtocolReadWriter
 public:
     virtual void set_recv_timeout(srs_utime_t tm);
