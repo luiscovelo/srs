@@ -93,6 +93,11 @@ SrsRtmpTransport::SrsRtmpTransport(srs_netfd_t c)
 {
     stfd_ = c;
     skt_ = new SrsTcpConnection(c);
+
+    // The transport handshake, such as TLS for RTMPS, runs before the RTMP timeouts are set, so a
+    // client that never completes it must not hold the connection forever.
+    skt_->set_recv_timeout(SRS_CONSTS_RTMP_TIMEOUT);
+    skt_->set_send_timeout(SRS_CONSTS_RTMP_TIMEOUT);
 }
 
 SrsRtmpTransport::~SrsRtmpTransport()

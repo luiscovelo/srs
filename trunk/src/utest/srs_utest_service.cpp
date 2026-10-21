@@ -24,6 +24,8 @@ using namespace std;
 #include <srs_protocol_rtmp_conn.hpp>
 #include <srs_protocol_conn.hpp>
 #include <srs_app_conn.hpp>
+#include <srs_app_rtmp_conn.hpp>
+#include <srs_kernel_utility.hpp>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <string.h>
@@ -111,6 +113,60 @@ VOID TEST(TlsConnectionTest, ReadFullyUsesDecryptedReadPath)
     EXPECT_EQ(9, nread);
     EXPECT_STREQ("Hello SRS", buf);
     EXPECT_EQ(5, ssl.read_calls_);
+}
+
+VOID TEST(RtmpTransportTest, DefaultTimeouts)
+{
+    int fds[2];
+    ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+    ::close(fds[1]);
+
+    SrsRtmpsTransport transport(srs_netfd_open_socket(fds[0]));
+    EXPECT_EQ(SRS_CONSTS_RTMP_TIMEOUT, transport.io()->get_recv_timeout());
+    EXPECT_EQ(SRS_CONSTS_RTMP_TIMEOUT, transport.io()->get_send_timeout());
+
+    ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+    ::close(fds[1]);
+
+    SrsRtmpTransport plain(srs_netfd_open_socket(fds[0]));
+    EXPECT_EQ(SRS_CONSTS_RTMP_TIMEOUT, plain.io()->get_recv_timeout());
+    EXPECT_EQ(SRS_CONSTS_RTMP_TIMEOUT, plain.io()->get_send_timeout());
+}
+
+// Run the RTMPS handshake against a peer that sends the data then stays idle, which must time out
+// instead of holding the connection forever. The cert and key are ./conf/server.*, so run in trunk.
+static void expect_rtmps_handshake_timeout(string data)
+{
+    int fds[2];
+    ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+    if (!data.empty()) {
+        ASSERT_EQ((ssize_t)data.size(), ::write(fds[1], data.data(), data.size()));
+    }
+
+    SrsRtmpsTransport transport(srs_netfd_open_socket(fds[0]));
+    transport.io()->set_recv_timeout(100 * SRS_UTIME_MILLISECONDS);
+
+    srs_utime_t starttime = srs_update_system_time();
+    srs_error_t err = transport.handshake();
+    srs_utime_t elapsed = srs_update_system_time() - starttime;
+    ::close(fds[1]);
+
+    ASSERT_TRUE(err != srs_success);
+    int code = srs_error_code(err);
+    string desc = srs_error_desc(err);
+    srs_freep(err);
+
+    EXPECT_EQ(ERROR_SOCKET_TIMEOUT, code) << desc;
+    EXPECT_LT(elapsed, 3 * SRS_UTIME_SECONDS);
+}
+
+VOID TEST(RtmpTransportTest, RtmpsHandshakeTimesOut)
+{
+    // A client that connects and sends nothing.
+    expect_rtmps_handshake_timeout("");
+
+    // A client that sends only the header of a ClientHello record.
+    expect_rtmps_handshake_timeout(string("\x16\x03\x01\x02\x00", 5));
 }
 
 class MockTcpHandler : public ISrsTcpHandler
