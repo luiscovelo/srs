@@ -5,6 +5,9 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.15, 2026-11-05, Metrics: Export `srs_rtmp_publishers` on `/metrics`, a gauge of the RTMP publishers by transport, labeled `ssl` for RTMPS and `plaintext` for RTMP like the transport in logs, counting only publishers that own a stream, so rejected publishes and connections waiting to republish are excluded. Based on upstream v6.0.191.
+* v6.0-itb.15, 2026-11-05, Tests: Add unit coverage for the RTMP publisher counters by transport, including republish and unbalanced stops, and for the TLS detection of the RTMP transports. Based on upstream v6.0.191.
+* v6.0-itb.15, 2026-11-05, Fork: Bump the fork display version to `6.0.191-itb.15`. Based on upstream v6.0.191.
 * v6.0-itb.14, 2026-10-21, RTMPS: Backport the RTMPS server from upstream [#4443](https://github.com/ossrs/srs/pull/4443), with a dedicated `rtmps` listener, TLS transport and `enabled`, `listen`, `key` and `cert` directives, while plain RTMP is unchanged. Based on upstream v6.0.191.
 * v6.0-itb.14, 2026-10-21, RTMPS: Default `rtmps.listen` to `1443` when it is missing or empty, and refuse an enabled RTMPS whose listen is not a valid `[ip:]port` endpoint. Based on upstream v6.0.191.
 * v6.0-itb.14, 2026-10-21, TLS: Treat a peer `close_notify` as a graceful disconnect, backported from upstream [#4036](https://github.com/ossrs/srs/issues/4036), and fix `SrsSslConnection::read_fully` to consume the decrypted bytes. Based on upstream v6.0.191.
