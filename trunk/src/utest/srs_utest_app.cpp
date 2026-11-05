@@ -261,6 +261,45 @@ VOID TEST(StatisticTest, GracefulDisconnectsDoNotIncrementErrors)
     EXPECT_EQ(1, nerrs);
 }
 
+VOID TEST(StatisticTest, RtmpPublishersByTransport)
+{
+    SrsStatistic stat;
+    int64_t tls = -1, plaintext = -1;
+
+    stat.dumps_rtmp_publishers(tls, plaintext);
+    EXPECT_EQ(0, tls);
+    EXPECT_EQ(0, plaintext);
+
+    // Two RTMPS publishers and one RTMP publisher.
+    stat.on_rtmp_publish_start(true);
+    stat.on_rtmp_publish_start(true);
+    stat.on_rtmp_publish_start(false);
+    stat.dumps_rtmp_publishers(tls, plaintext);
+    EXPECT_EQ(2, tls);
+    EXPECT_EQ(1, plaintext);
+
+    // A republish on the same connection stops then starts again, so it never double counts.
+    for (int i = 0; i < 3; i++) {
+        stat.on_rtmp_publish_stop(true);
+        stat.on_rtmp_publish_start(true);
+    }
+    stat.dumps_rtmp_publishers(tls, plaintext);
+    EXPECT_EQ(2, tls);
+    EXPECT_EQ(1, plaintext);
+
+    stat.on_rtmp_publish_stop(true);
+    stat.on_rtmp_publish_stop(false);
+    stat.dumps_rtmp_publishers(tls, plaintext);
+    EXPECT_EQ(1, tls);
+    EXPECT_EQ(0, plaintext);
+
+    // An unbalanced stop must not make the gauge negative.
+    stat.on_rtmp_publish_stop(false);
+    stat.dumps_rtmp_publishers(tls, plaintext);
+    EXPECT_EQ(1, tls);
+    EXPECT_EQ(0, plaintext);
+}
+
 VOID TEST(AppResourceManagerTest, FindByFastID)
 {
     srs_error_t err = srs_success;

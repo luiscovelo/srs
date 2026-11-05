@@ -154,6 +154,9 @@ private:
     int64_t nb_clients_;
     // The total of clients errors.
     int64_t nb_errs_;
+    // The number of RTMP publishers over TLS (RTMPS) and over plaintext TCP (RTMP).
+    int64_t nb_rtmp_publishers_tls_;
+    int64_t nb_rtmp_publishers_plaintext_;
 private:
     SrsStatistic();
     virtual ~SrsStatistic();
@@ -196,6 +199,11 @@ private:
     // Cleanup the stream if stream is not active and for the last client.
     void cleanup_stream(SrsStatisticStream* stream);
 public:
+    // When a RTMP publisher starts or stops publishing a source, by transport.
+    // @remark Must be called in pairs, only when the publisher acquired the source.
+    virtual void on_rtmp_publish_start(bool tls);
+    virtual void on_rtmp_publish_stop(bool tls);
+public:
     // Sample the kbps, add delta bytes of conn.
     // Use kbps_sample() to get all result of kbps stat.
     virtual void kbps_add_delta(std::string id, ISrsKbpsDelta* delta);
@@ -233,6 +241,8 @@ private:
 public:
     // Dumps exporter metrics.
     virtual srs_error_t dumps_metrics(int64_t& send_bytes, int64_t& recv_bytes, int64_t& nstreams, int64_t& nclients, int64_t& total_nclients, int64_t& nerrs);
+    // Dumps the number of RTMP publishers by transport.
+    virtual void dumps_rtmp_publishers(int64_t& tls, int64_t& plaintext);
 };
 
 // Generate a random string id, with constant prefix.

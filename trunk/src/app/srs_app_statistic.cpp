@@ -257,6 +257,8 @@ SrsStatistic::SrsStatistic()
 
     nb_clients_ = 0;
     nb_errs_ = 0;
+    nb_rtmp_publishers_tls_ = 0;
+    nb_rtmp_publishers_plaintext_ = 0;
 }
 
 SrsStatistic::~SrsStatistic()
@@ -475,6 +477,25 @@ void SrsStatistic::on_disconnect(std::string id, srs_error_t err)
     }
 
     cleanup_stream(stream);
+}
+
+void SrsStatistic::on_rtmp_publish_start(bool tls)
+{
+    if (tls) {
+        nb_rtmp_publishers_tls_++;
+    } else {
+        nb_rtmp_publishers_plaintext_++;
+    }
+}
+
+void SrsStatistic::on_rtmp_publish_stop(bool tls)
+{
+    int64_t& nn = tls ? nb_rtmp_publishers_tls_ : nb_rtmp_publishers_plaintext_;
+    if (nn > 0) {
+        nn--;
+    } else {
+        srs_warn("stat: unbalanced rtmp publish stop, tls=%d", tls);
+    }
 }
 
 void SrsStatistic::cleanup_stream(SrsStatisticStream* stream)
@@ -800,5 +821,11 @@ srs_error_t SrsStatistic::dumps_metrics(int64_t& send_bytes, int64_t& recv_bytes
     nerrs = nb_errs_;
 
     return err;
+}
+
+void SrsStatistic::dumps_rtmp_publishers(int64_t& tls, int64_t& plaintext)
+{
+    tls = nb_rtmp_publishers_tls_;
+    plaintext = nb_rtmp_publishers_plaintext_;
 }
 

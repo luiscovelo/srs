@@ -83,6 +83,8 @@ public:
     virtual ISrsProtocolReadWriter* io();
     virtual srs_error_t handshake();
     virtual const char* transport_type();
+    // Whether the transport is TLS, such as RTMPS.
+    virtual bool is_tls();
     // The transport for logs, such as "transport=ssl, tls=TLSv1.2, cipher=..., sni=...".
     virtual std::string transport_info();
     virtual srs_error_t set_socket_buffer(srs_utime_t buffer_v);
@@ -103,6 +105,7 @@ public:
     virtual ISrsProtocolReadWriter* io();
     virtual srs_error_t handshake();
     virtual const char* transport_type();
+    virtual bool is_tls();
     virtual std::string transport_info();
 };
 

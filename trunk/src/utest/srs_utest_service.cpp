@@ -135,6 +135,22 @@ VOID TEST(RtmpTransportTest, DefaultTimeouts)
     EXPECT_EQ(SRS_CONSTS_RTMP_TIMEOUT, plain.io()->get_send_timeout());
 }
 
+VOID TEST(RtmpTransportTest, IsTls)
+{
+    int fds[2];
+    ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+    ::close(fds[1]);
+
+    SrsRtmpsTransport tls(srs_netfd_open_socket(fds[0]));
+    EXPECT_TRUE(tls.is_tls());
+
+    ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+    ::close(fds[1]);
+
+    SrsRtmpTransport plain(srs_netfd_open_socket(fds[0]));
+    EXPECT_FALSE(plain.is_tls());
+}
+
 // Run the RTMPS handshake against a peer that sends the data then stays idle, which must time out
 // instead of holding the connection forever. The cert and key are ./conf/server.*, so run in trunk.
 static void expect_rtmps_handshake_timeout(string data)

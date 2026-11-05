@@ -1271,6 +1271,7 @@ srs_error_t SrsGoApiMetrics::serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessa
      * clients gauge
      * clients_total counter
      * error counter
+     * rtmp_publishers gauge
     */
 
     SrsStatistic* stat = SrsStatistic::instance();
@@ -1367,6 +1368,19 @@ srs_error_t SrsGoApiMetrics::serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessa
        << "# TYPE srs_clients_errs_total counter\n"
        << "srs_clients_errs_total "
        << nerrs
+       << "\n";
+
+    // Current number of RTMP publishers, by transport: ssl for RTMPS, plaintext for RTMP. The labels
+    // match the transport in logs, see SrsRtmpTransport::transport_type().
+    int64_t nb_ssl_publishers = 0, nb_plaintext_publishers = 0;
+    stat->dumps_rtmp_publishers(nb_ssl_publishers, nb_plaintext_publishers);
+    ss << "# HELP srs_rtmp_publishers The number of SRS concurrent RTMP publishers by transport.\n"
+       << "# TYPE srs_rtmp_publishers gauge\n"
+       << "srs_rtmp_publishers{transport=\"ssl\"} "
+       << nb_ssl_publishers
+       << "\n"
+       << "srs_rtmp_publishers{transport=\"plaintext\"} "
+       << nb_plaintext_publishers
        << "\n";
 
     w->header()->set_content_type("text/plain; charset=utf-8");

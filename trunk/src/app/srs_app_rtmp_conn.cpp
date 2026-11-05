@@ -153,6 +153,11 @@ const char* SrsRtmpTransport::transport_type()
     return "plaintext";
 }
 
+bool SrsRtmpTransport::is_tls()
+{
+    return false;
+}
+
 string SrsRtmpTransport::transport_info()
 {
     return srs_fmt("transport=%s", transport_type());
@@ -211,6 +216,11 @@ srs_error_t SrsRtmpsTransport::handshake()
 const char* SrsRtmpsTransport::transport_type()
 {
     return "ssl";
+}
+
+bool SrsRtmpsTransport::is_tls()
+{
+    return true;
 }
 
 string SrsRtmpsTransport::transport_info()
@@ -1084,6 +1094,10 @@ srs_error_t SrsRtmpConn::publishing(SrsSharedPtr<SrsLiveSource> source)
     // TODO: FIXME: Should refine the state of publishing.
     srs_error_t acquire_err = acquire_publish(source);
     if ((err = acquire_err) == srs_success) {
+        // Count the publisher by transport only while it owns the source, so a rejected publish or a
+        // connection waiting to republish is not counted.
+        stat->on_rtmp_publish_start(transport_->is_tls());
+
         // use isolate thread to recv,
         // @see: https://github.com/ossrs/srs/issues/237
         SrsPublishRecvThread rtrd(rtmp, req, srs_netfd_fileno(transport_->fd()), 0, this, source, _srs_context->get_id());
@@ -1095,6 +1109,7 @@ srs_error_t SrsRtmpConn::publishing(SrsSharedPtr<SrsLiveSource> source)
     // is not published by this session.
     if (acquire_err == srs_success) {
         release_publish(source);
+        stat->on_rtmp_publish_stop(transport_->is_tls());
         http_hooks_on_unpublish(err);
     }
     
