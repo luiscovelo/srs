@@ -14,8 +14,8 @@ srt-1.5.3.tar.gz
 * https://ossrs.net/lts/zh-cn/license#srt
 
 openssl-1.1-fit
-openssl-1.1.1l.tar.gz
-* http://www.openssl.org/source/openssl-1.1.1l.tar.gz
+openssl-1.1.1w.tar.gz
+* https://www.openssl.org/source/old/1.1.1/openssl-1.1.1w.tar.gz (sha256 cf3098950cb4d853ad95c0841f1f9c6d3dc102dccfcacd521d93925208b76ac8)
 
 openssl-1.1.0e.zip
 openssl-OpenSSL_1_0_2u.tar.gz
