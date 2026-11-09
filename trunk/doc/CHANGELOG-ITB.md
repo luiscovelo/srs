@@ -5,6 +5,11 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.17, 2026-11-09, RTMPS: Restrict TLS to ECDHE with AEAD ciphers in the server order, `X25519:P-256:P-384` groups and RSA signatures without SHA-1, and disable renegotiation, session tickets and compression, with `ciphers`, `groups` and `sigalgs` directives and `SRS_RTMPS_CIPHERS`, `SRS_RTMPS_GROUPS` and `SRS_RTMPS_SIGALGS` to change the lists. Based on upstream v6.0.191.
+* v6.0-itb.17, 2026-11-09, RTMPS: Check the TLS profile, key and cert at start, and refuse to start when a cipher lacks ECDHE or AEAD, a signature uses SHA-1 or MD5, or the key is not RSA of 2048 bits or more, logging the OpenSSL version and the final lists. Based on upstream v6.0.191.
+* v6.0-itb.17, 2026-11-09, HTTPS: Use the same default TLS profile and key checks as RTMPS for the HTTPS API and server. Based on upstream v6.0.191.
+* v6.0-itb.17, 2026-11-09, Tests: Add unit coverage for the TLS profile directives, the security floor, the key and cert checks, and RTMPS handshakes with weak and preferred ciphers. Based on upstream v6.0.191.
+* v6.0-itb.17, 2026-11-09, Fork: Bump the fork display version to `6.0.191-itb.17`. Based on upstream v6.0.191.
 * v6.0-itb.16, 2026-11-09, OpenSSL: Upgrade the bundled `openssl-1.1-fit` from 1.1.1l to 1.1.1w, the last public 1.1.1 release, which fixes the public 1.1.1 advisories published after 1.1.1l, such as CVE-2022-0778, CVE-2022-4304 and CVE-2023-0286. Build with `--ssl-local=on` so a prebuilt OpenSSL in the build image, like the 1.1.1j in `ossrs/srs:ubuntu20`, is not used instead. Based on upstream v6.0.191.
 * v6.0-itb.16, 2026-11-09, Fork: Bump the fork display version to `6.0.191-itb.16`. Based on upstream v6.0.191.
 * v6.0-itb.15, 2026-11-05, Metrics: Export `srs_rtmp_publishers` on `/metrics`, a gauge of the RTMP publishers by transport, labeled `ssl` for RTMPS and `plaintext` for RTMP like the transport in logs, counting only publishers that own a stream, so rejected publishes and connections waiting to republish are excluded. Based on upstream v6.0.191.
