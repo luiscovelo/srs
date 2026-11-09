@@ -584,8 +584,21 @@ srs_error_t SrsServer::listen()
         return srs_error_wrap(err, "rtmp listen");
     }
 
-    // Create RTMPS listeners.
+    // Create RTMPS listeners, after the TLS profile, key and cert are checked, so a bad one stops the
+    // server at start instead of failing every connection.
     if (_srs_config->get_rtmps_enabled()) {
+        SrsTlsProfile profile;
+        profile.ciphers = _srs_config->get_rtmps_ciphers();
+        profile.groups = _srs_config->get_rtmps_groups();
+        profile.sigalgs = _srs_config->get_rtmps_sigalgs();
+
+        string summary;
+        string key_file = _srs_config->get_rtmps_ssl_key(), crt_file = _srs_config->get_rtmps_ssl_cert();
+        if ((err = srs_tls_check_server(key_file, crt_file, profile, summary)) != srs_success) {
+            return srs_error_wrap(err, "rtmps tls");
+        }
+        srs_trace("RTMPS: tls %s, key=%s, cert=%s", summary.c_str(), key_file.c_str(), crt_file.c_str());
+
         rtmps_listener_->add(_srs_config->get_rtmps_listen())->set_label("RTMPS");
         if ((err = rtmps_listener_->listen()) != srs_success) {
             return srs_error_wrap(err, "rtmps listen");

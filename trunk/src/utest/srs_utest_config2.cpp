@@ -118,6 +118,53 @@ VOID TEST(ConfigRtmpsTest, DefaultsAndExplicitValues)
     }
 }
 
+VOID TEST(ConfigRtmpsTest, TlsProfile)
+{
+    srs_error_t err;
+
+    // Without the directives, or with them empty, RTMPS uses the default TLS profile.
+    if (true) {
+        MockSrsConfig conf;
+        HELPER_ASSERT_SUCCESS(conf.parse(_MIN_OK_CONF "rtmps { ciphers; groups; sigalgs; }"));
+
+        EXPECT_STREQ(SRS_TLS_DEFAULT_CIPHERS, conf.get_rtmps_ciphers().c_str());
+        EXPECT_STREQ(SRS_TLS_DEFAULT_GROUPS, conf.get_rtmps_groups().c_str());
+        EXPECT_STREQ(SRS_TLS_DEFAULT_SIGALGS, conf.get_rtmps_sigalgs().c_str());
+        EXPECT_STREQ("ECDHE-RSA-CHACHA20-POLY1305:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256", SRS_TLS_DEFAULT_CIPHERS);
+        EXPECT_STREQ("X25519:P-256:P-384", SRS_TLS_DEFAULT_GROUPS);
+        EXPECT_STREQ("RSA+SHA256:RSA+SHA384:RSA+SHA512", SRS_TLS_DEFAULT_SIGALGS);
+    }
+
+    if (true) {
+        MockSrsConfig conf;
+        HELPER_ASSERT_SUCCESS(conf.parse(_MIN_OK_CONF
+            "rtmps {"
+            "ciphers ECDHE-RSA-AES128-GCM-SHA256;"
+            "groups P-256;"
+            "sigalgs RSA+SHA256;"
+            "}"
+        ));
+
+        EXPECT_STREQ("ECDHE-RSA-AES128-GCM-SHA256", conf.get_rtmps_ciphers().c_str());
+        EXPECT_STREQ("P-256", conf.get_rtmps_groups().c_str());
+        EXPECT_STREQ("RSA+SHA256", conf.get_rtmps_sigalgs().c_str());
+    }
+
+    // The environment overrides the config.
+    if (true) {
+        MockSrsConfig conf;
+        HELPER_ASSERT_SUCCESS(conf.parse(_MIN_OK_CONF "rtmps { ciphers ECDHE-RSA-AES128-GCM-SHA256; }"));
+
+        SrsSetEnvConfig(conf, rtmps_ciphers, "SRS_RTMPS_CIPHERS", "ECDHE-RSA-AES256-GCM-SHA384");
+        SrsSetEnvConfig(conf, rtmps_groups, "SRS_RTMPS_GROUPS", "X25519");
+        SrsSetEnvConfig(conf, rtmps_sigalgs, "SRS_RTMPS_SIGALGS", "RSA+SHA512");
+
+        EXPECT_STREQ("ECDHE-RSA-AES256-GCM-SHA384", conf.get_rtmps_ciphers().c_str());
+        EXPECT_STREQ("X25519", conf.get_rtmps_groups().c_str());
+        EXPECT_STREQ("RSA+SHA512", conf.get_rtmps_sigalgs().c_str());
+    }
+}
+
 VOID TEST(ConfigRtmpsTest, EnvironmentOverrides)
 {
     srs_error_t err;

@@ -2440,7 +2440,8 @@ srs_error_t SrsConfig::check_normal_config()
         SrsConfDirective* conf = root->get("rtmps");
         for (int i = 0; conf && i < (int)conf->directives.size(); i++) {
             string n = conf->at(i)->name;
-            if (n != "enabled" && n != "listen" && n != "key" && n != "cert") {
+            if (n != "enabled" && n != "listen" && n != "key" && n != "cert"
+                && n != "ciphers" && n != "groups" && n != "sigalgs") {
                 return srs_error_new(ERROR_SYSTEM_CONFIG_INVALID, "illegal rtmps.%s", n.c_str());
             }
         }
@@ -9067,4 +9068,33 @@ string SrsConfig::get_rtmps_ssl_cert()
     }
 
     return conf->arg0();
+}
+
+// Get the arg0 of the rtmps directive, or the default if it is missing or empty.
+static string srs_get_rtmps_string(SrsConfDirective* rtmps, string name, string def)
+{
+    SrsConfDirective* conf = rtmps ? rtmps->get(name) : NULL;
+    if (!conf || conf->arg0().empty()) {
+        return def;
+    }
+
+    return conf->arg0();
+}
+
+string SrsConfig::get_rtmps_ciphers()
+{
+    SRS_OVERWRITE_BY_ENV_STRING("srs.rtmps.ciphers"); // SRS_RTMPS_CIPHERS
+    return srs_get_rtmps_string(get_rtmps(), "ciphers", SRS_TLS_DEFAULT_CIPHERS);
+}
+
+string SrsConfig::get_rtmps_groups()
+{
+    SRS_OVERWRITE_BY_ENV_STRING("srs.rtmps.groups"); // SRS_RTMPS_GROUPS
+    return srs_get_rtmps_string(get_rtmps(), "groups", SRS_TLS_DEFAULT_GROUPS);
+}
+
+string SrsConfig::get_rtmps_sigalgs()
+{
+    SRS_OVERWRITE_BY_ENV_STRING("srs.rtmps.sigalgs"); // SRS_RTMPS_SIGALGS
+    return srs_get_rtmps_string(get_rtmps(), "sigalgs", SRS_TLS_DEFAULT_SIGALGS);
 }

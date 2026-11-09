@@ -267,6 +267,30 @@ public:
 };
 
 // The SSL connection over TCP transport, in server mode.
+// The TLS profile of a server, as OpenSSL lists: the TLS 1.2 cipher suites in the order the server
+// prefers, the ECDHE groups and the signature algorithms. It defaults to SRS_TLS_DEFAULT_*.
+struct SrsTlsProfile
+{
+    std::string ciphers;
+    std::string groups;
+    std::string sigalgs;
+    SrsTlsProfile();
+};
+
+// The smallest RSA key a TLS server accepts, in bits.
+#define SRS_TLS_MIN_RSA_BITS 2048
+
+// Apply the profile to a TLS 1.2 server context, with the fixed hardening: the server picks the
+// cipher, and renegotiation, session tickets and compression are off. Refuse a profile below the
+// security floor: every cipher must use ECDHE and AEAD, and the signature algorithms must include
+// an RSA one and no SHA-1. Requires OpenSSL 1.1.1 or newer.
+extern srs_error_t srs_tls_apply_profile(SSL_CTX* ctx, const SrsTlsProfile& profile);
+// Refuse a server key that is not RSA, or smaller than SRS_TLS_MIN_RSA_BITS.
+extern srs_error_t srs_tls_check_key(EVP_PKEY* pkey);
+// Check, before serving, that the key and cert load and match, and that the key and the profile are
+// accepted. Fill the summary with the OpenSSL version and the final lists, for logs.
+extern srs_error_t srs_tls_check_server(std::string key_file, std::string crt_file, const SrsTlsProfile& profile, std::string& summary);
+
 class SrsSslConnection : public ISrsProtocolReadWriter
 {
 private:
@@ -283,7 +307,7 @@ public:
     SrsSslConnection(ISrsProtocolReadWriter* c);
     virtual ~SrsSslConnection();
 public:
-    virtual srs_error_t handshake(std::string key_file, std::string crt_file);
+    virtual srs_error_t handshake(std::string key_file, std::string crt_file, const SrsTlsProfile& profile);
     // The negotiated TLS version and cipher, and the SNI sent by the client, after the handshake.
     virtual std::string tls_version();
     virtual std::string tls_cipher();

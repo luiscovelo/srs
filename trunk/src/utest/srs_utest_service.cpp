@@ -26,7 +26,12 @@ using namespace std;
 #include <srs_app_conn.hpp>
 #include <srs_app_rtmp_conn.hpp>
 #include <srs_kernel_utility.hpp>
+#include <srs_app_config.hpp>
+#include <srs_utest_kernel.hpp>
 #include <openssl/ssl.h>
+#include <openssl/pem.h>
+#include <openssl/rsa.h>
+#include <openssl/ec.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -186,6 +191,8 @@ struct MockTlsClient
     // The TLS versions the client accepts, 0 for the default of OpenSSL.
     int min_version;
     int max_version;
+    // The TLS 1.2 ciphers the client offers, empty for the default of OpenSSL.
+    string cipher_list;
     string cipher;
     bool ok;
 };
@@ -206,6 +213,9 @@ static void* mock_tls_client_cycle(void* arg)
     }
     if (c->max_version) {
         SSL_set_max_proto_version(ssl, c->max_version);
+    }
+    if (!c->cipher_list.empty()) {
+        SSL_set_cipher_list(ssl, c->cipher_list.c_str());
     }
 
     for (int i = 0; i < 100; i++) {
@@ -326,6 +336,257 @@ VOID TEST(RtmpTransportTest, RtmpsHandshakeTimesOut)
 
     // A client that sends only the header of a ClientHello record.
     expect_rtmps_handshake_timeout(string("\x16\x03\x01\x02\x00", 5));
+}
+
+VOID TEST(RtmpTransportTest, RtmpsUsesTlsProfile)
+{
+    // The client prefers AES-GCM, but the server picks ChaCha20, the first of its default order.
+    if (true) {
+        MockTlsClient client;
+        client.min_version = 0;
+        client.max_version = TLS1_2_VERSION;
+        client.cipher_list = "ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-CHACHA20-POLY1305";
+
+        string info, error;
+        do_rtmps_handshake(client, info, error);
+        ASSERT_TRUE(error.empty()) << error;
+        ASSERT_TRUE(client.ok);
+        EXPECT_STREQ("ECDHE-RSA-CHACHA20-POLY1305", client.cipher.c_str());
+    }
+
+    // A client that offers only static RSA, without forward secrecy, is refused.
+    if (true) {
+        MockTlsClient client;
+        client.min_version = 0;
+        client.max_version = TLS1_2_VERSION;
+        client.cipher_list = "AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA";
+
+        string info, error;
+        do_rtmps_handshake(client, info, error);
+        EXPECT_FALSE(client.ok);
+        EXPECT_FALSE(error.empty());
+    }
+
+    // A client that offers only ECDHE with CBC is refused.
+    if (true) {
+        MockTlsClient client;
+        client.min_version = 0;
+        client.max_version = TLS1_2_VERSION;
+        client.cipher_list = "ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA384";
+
+        string info, error;
+        do_rtmps_handshake(client, info, error);
+        EXPECT_FALSE(client.ok);
+        EXPECT_FALSE(error.empty());
+    }
+}
+
+// Apply the profile to a new TLS 1.2 server context, and get the error description, empty if accepted.
+static string apply_tls_profile(string ciphers, string groups, string sigalgs)
+{
+    SrsTlsProfile profile;
+    if (!ciphers.empty()) profile.ciphers = ciphers;
+    if (!groups.empty()) profile.groups = groups;
+    if (!sigalgs.empty()) profile.sigalgs = sigalgs;
+
+    SSL_CTX* ctx = SSL_CTX_new(TLS_server_method());
+    SSL_CTX_set_max_proto_version(ctx, TLS1_2_VERSION);
+    srs_error_t err = srs_tls_apply_profile(ctx, profile);
+    SSL_CTX_free(ctx);
+
+    string desc;
+    if (err != srs_success) {
+        desc = srs_error_desc(err);
+        srs_freep(err);
+    }
+    return desc;
+}
+
+VOID TEST(TlsProfileTest, DefaultProfile)
+{
+    SSL_CTX* ctx = SSL_CTX_new(TLS_server_method());
+    srs_error_t err = srs_tls_apply_profile(ctx, SrsTlsProfile());
+    HELPER_EXPECT_SUCCESS(err);
+
+    // Only the three TLS 1.2 ciphers remain, in the order of the server, without TLS 1.3 suites.
+    vector<string> names;
+    STACK_OF(SSL_CIPHER)* ciphers = SSL_CTX_get_ciphers(ctx);
+    for (int i = 0; i < sk_SSL_CIPHER_num(ciphers); i++) {
+        names.push_back(SSL_CIPHER_get_name(sk_SSL_CIPHER_value(ciphers, i)));
+    }
+    EXPECT_STREQ(SRS_TLS_DEFAULT_CIPHERS, srs_join_vector_string(names, ":").c_str());
+
+    // The server picks the cipher, and renegotiation, session tickets and compression are off.
+    long opts = SSL_CTX_get_options(ctx);
+    EXPECT_TRUE((opts & SSL_OP_CIPHER_SERVER_PREFERENCE) != 0);
+    EXPECT_TRUE((opts & SSL_OP_NO_RENEGOTIATION) != 0);
+    EXPECT_TRUE((opts & SSL_OP_NO_TICKET) != 0);
+    EXPECT_TRUE((opts & SSL_OP_NO_COMPRESSION) != 0);
+
+    SSL_CTX_free(ctx);
+}
+
+VOID TEST(TlsProfileTest, AcceptSecureProfiles)
+{
+    EXPECT_STREQ("", apply_tls_profile("ECDHE-RSA-AES128-GCM-SHA256", "P-256", "RSA+SHA256").c_str());
+    EXPECT_STREQ("", apply_tls_profile("ECDHE+AESGCM:ECDHE+CHACHA20", "", "").c_str());
+    EXPECT_STREQ("", apply_tls_profile("", "X25519:P-256:P-384:P-521", "rsa_pss_rsae_sha256:RSA+SHA256").c_str());
+}
+
+// Expect the profile to be refused, with the reason in the error.
+static void expect_tls_profile_refused(string ciphers, string groups, string sigalgs, string reason)
+{
+    string desc = apply_tls_profile(ciphers, groups, sigalgs);
+    EXPECT_TRUE(desc.find(reason) != string::npos) << "ciphers=" << ciphers << ", groups=" << groups
+        << ", sigalgs=" << sigalgs << ": " << desc;
+}
+
+VOID TEST(TlsProfileTest, RefuseBelowSecurityFloor)
+{
+    // Static RSA, without forward secrecy, even with AEAD.
+    expect_tls_profile_refused("AES128-GCM-SHA256", "", "", "tls cipher AES128-GCM-SHA256 is below the security floor");
+    // ECDHE with CBC, not AEAD.
+    expect_tls_profile_refused("ECDHE-RSA-AES128-SHA", "", "", "tls cipher ECDHE-RSA-AES128-SHA is below the security floor");
+    // One weak cipher refuses the whole list.
+    expect_tls_profile_refused("ECDHE-RSA-CHACHA20-POLY1305:AES256-SHA", "", "", "tls cipher AES256-SHA is below");
+    // A list that expands to weak ciphers.
+    expect_tls_profile_refused("ALL", "", "", "is below the security floor");
+    // No valid cipher.
+    expect_tls_profile_refused("FOO-BAR", "", "", "has no valid cipher");
+
+    // Invalid groups.
+    expect_tls_profile_refused("", "FOO", "", "tls groups=FOO is invalid");
+
+    // SHA-1 and MD5 signatures.
+    expect_tls_profile_refused("", "", "RSA+SHA1", "tls sigalg RSA+SHA1 is below the security floor");
+    expect_tls_profile_refused("", "", "RSA+SHA256:rsa_pkcs1_sha1", "tls sigalg rsa_pkcs1_sha1 is below");
+    expect_tls_profile_refused("", "", "RSA+MD5", "tls sigalg RSA+MD5 is below");
+    // No RSA signature for the RSA key.
+    expect_tls_profile_refused("", "", "ECDSA+SHA256", "has no RSA algorithm");
+    // Invalid signature algorithms.
+    expect_tls_profile_refused("", "", "RSA+FOO", "tls sigalgs=RSA+FOO is invalid");
+}
+
+// Generate a key by OpenSSL, RSA of the bits, or EC P-256 when bits is 0.
+static EVP_PKEY* generate_tls_key(int bits)
+{
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(bits ? EVP_PKEY_RSA : EVP_PKEY_EC, NULL);
+    EVP_PKEY_keygen_init(ctx);
+    if (bits) {
+        EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, bits);
+    } else {
+        EVP_PKEY_CTX_set_ec_paramgen_curve_nid(ctx, NID_X9_62_prime256v1);
+    }
+
+    EVP_PKEY* pkey = NULL;
+    EVP_PKEY_keygen(ctx, &pkey);
+    EVP_PKEY_CTX_free(ctx);
+    return pkey;
+}
+
+VOID TEST(TlsProfileTest, CheckKey)
+{
+    srs_error_t err;
+
+    HELPER_EXPECT_FAILED(srs_tls_check_key(NULL));
+
+    if (true) {
+        EVP_PKEY* pkey = generate_tls_key(2048);
+        ASSERT_TRUE(pkey != NULL);
+        HELPER_EXPECT_SUCCESS(srs_tls_check_key(pkey));
+        EVP_PKEY_free(pkey);
+    }
+
+    if (true) {
+        EVP_PKEY* pkey = generate_tls_key(1024);
+        ASSERT_TRUE(pkey != NULL);
+        err = srs_tls_check_key(pkey);
+        ASSERT_TRUE(err != srs_success);
+        string desc = srs_error_desc(err);
+        srs_freep(err);
+        EXPECT_TRUE(desc.find("RSA key of 1024 bits is smaller than 2048 bits") != string::npos) << desc;
+        EVP_PKEY_free(pkey);
+    }
+
+    if (true) {
+        EVP_PKEY* pkey = generate_tls_key(0);
+        ASSERT_TRUE(pkey != NULL);
+        err = srs_tls_check_key(pkey);
+        ASSERT_TRUE(err != srs_success);
+        string desc = srs_error_desc(err);
+        srs_freep(err);
+        EXPECT_TRUE(desc.find("is not RSA") != string::npos) << desc;
+        EVP_PKEY_free(pkey);
+    }
+}
+
+// Check the server key and cert with the default profile, and get the error description, empty if accepted.
+static string check_tls_server(string key_file, string crt_file, string& summary)
+{
+    srs_error_t err = srs_tls_check_server(key_file, crt_file, SrsTlsProfile(), summary);
+    string desc;
+    if (err != srs_success) {
+        desc = srs_error_desc(err);
+        srs_freep(err);
+    }
+    return desc;
+}
+
+VOID TEST(TlsProfileTest, CheckServer)
+{
+    // The cert and key are ./conf/server.*, an RSA key of 2048 bits, so run in trunk.
+    if (true) {
+        string summary;
+        string desc = check_tls_server("./conf/server.key", "./conf/server.crt", summary);
+        ASSERT_TRUE(desc.empty()) << desc;
+
+        string expect = string("openssl=") + OPENSSL_VERSION_TEXT + ", tls=TLSv1.2, ciphers=" SRS_TLS_DEFAULT_CIPHERS
+            ", groups=" SRS_TLS_DEFAULT_GROUPS ", sigalgs=" SRS_TLS_DEFAULT_SIGALGS;
+        EXPECT_STREQ(expect.c_str(), summary.c_str());
+    }
+
+    if (true) {
+        string summary;
+        string desc = check_tls_server("./conf/server.key", "./conf/not-exists.crt", summary);
+        EXPECT_TRUE(desc.find("use cert ./conf/not-exists.crt") != string::npos) << desc;
+    }
+
+    if (true) {
+        string summary;
+        string desc = check_tls_server("./conf/not-exists.key", "./conf/server.crt", summary);
+        EXPECT_TRUE(desc.find("use key ./conf/not-exists.key") != string::npos) << desc;
+    }
+
+    // A valid RSA key that is not the key of the cert, and an ECDSA key.
+    for (int i = 0; i < 2; i++) {
+        string key_file = _srs_tmp_file_prefix + "utest-tls-other.key";
+        MockFileRemover _mfr(key_file);
+
+        EVP_PKEY* pkey = generate_tls_key(i == 0 ? 2048 : 0);
+        ASSERT_TRUE(pkey != NULL);
+        FILE* fp = fopen(key_file.c_str(), "w");
+        ASSERT_TRUE(fp != NULL);
+        PEM_write_PrivateKey(fp, pkey, NULL, NULL, 0, NULL, NULL);
+        fclose(fp);
+        EVP_PKEY_free(pkey);
+
+        string summary;
+        string desc = check_tls_server(key_file, "./conf/server.crt", summary);
+        string expect = (i == 0) ? "does not match cert ./conf/server.crt" : "key type id-ecPublicKey is not RSA";
+        EXPECT_TRUE(desc.find(expect) != string::npos) << desc;
+    }
+
+    // A profile below the floor is refused before the files are loaded.
+    if (true) {
+        SrsTlsProfile profile;
+        profile.ciphers = "AES128-SHA";
+        string summary;
+        srs_error_t err = srs_tls_check_server("./conf/server.key", "./conf/server.crt", profile, summary);
+        ASSERT_TRUE(err != srs_success);
+        string desc = srs_error_desc(err);
+        srs_freep(err);
+        EXPECT_TRUE(desc.find("tls cipher AES128-SHA is below the security floor") != string::npos) << desc;
+    }
 }
 
 class MockTcpHandler : public ISrsTcpHandler

@@ -30,6 +30,13 @@ class SrsRequest;
 class SrsJsonArray;
 class SrsConfDirective;
 
+// The default TLS profile of the servers: TLS 1.2 cipher suites with ECDHE and AEAD only, for an
+// RSA key, in the order the server prefers; the ECDHE groups; and the RSA signature algorithms,
+// without SHA-1. ChaCha20 is first because cameras without AES in hardware prefer it.
+#define SRS_TLS_DEFAULT_CIPHERS "ECDHE-RSA-CHACHA20-POLY1305:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256"
+#define SRS_TLS_DEFAULT_GROUPS "X25519:P-256:P-384"
+#define SRS_TLS_DEFAULT_SIGALGS "RSA+SHA256:RSA+SHA384:RSA+SHA512"
+
 /**
  * whether the two vector actual equals, for instance,
  *      srs_vector_actual_equals([0, 1, 2], [0, 1, 2])      is true
@@ -1091,6 +1098,10 @@ public:
     virtual std::vector<std::string> get_rtmps_listen();
     virtual std::string get_rtmps_ssl_key();
     virtual std::string get_rtmps_ssl_cert();
+    // The TLS profile of RTMPS, in OpenSSL list format, such as "X25519:P-256" for the groups.
+    virtual std::string get_rtmps_ciphers();
+    virtual std::string get_rtmps_groups();
+    virtual std::string get_rtmps_sigalgs();
 public:
     // Get whether vhost enabled http stream
     virtual bool get_vhost_http_enabled(std::string vhost);

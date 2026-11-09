@@ -8,6 +8,7 @@
 
 #include <netinet/tcp.h>
 #include <algorithm>
+#include <openssl/pem.h>
 using namespace std;
 
 #include <srs_kernel_log.hpp>
@@ -690,6 +691,168 @@ srs_error_t SrsBufferedReadWriter::writev(const iovec *iov, int iov_size, ssize_
     return io_->writev(iov, iov_size, nwrite);
 }
 
+SrsTlsProfile::SrsTlsProfile()
+{
+    ciphers = SRS_TLS_DEFAULT_CIPHERS;
+    groups = SRS_TLS_DEFAULT_GROUPS;
+    sigalgs = SRS_TLS_DEFAULT_SIGALGS;
+}
+
+srs_error_t srs_tls_apply_profile(SSL_CTX* ctx, const SrsTlsProfile& profile)
+{
+#if (OPENSSL_VERSION_NUMBER < 0x10101000L) // v1.1.1
+    return srs_error_new(ERROR_HTTPS_NOT_SUPPORTED, "tls profile requires OpenSSL 1.1.1+, got %s", OPENSSL_VERSION_TEXT);
+#else
+    // The server picks the cipher by its order. Renegotiation is off, which also closes CVE-2021-3449
+    // of OpenSSL before 1.1.1k. Session tickets are off, because their long-lived key would weaken the
+    // forward secrecy of ECDHE.
+    SSL_CTX_set_options(ctx, SSL_OP_CIPHER_SERVER_PREFERENCE | SSL_OP_NO_RENEGOTIATION | SSL_OP_NO_TICKET | SSL_OP_NO_COMPRESSION);
+
+    // Drop the TLS 1.3 suites, which a TLS 1.2 server never uses, so only TLS 1.2 ciphers remain.
+    if (SSL_CTX_set_ciphersuites(ctx, "") != 1) {
+        ERR_clear_error();
+        return srs_error_new(ERROR_HTTPS_HANDSHAKE, "tls drop TLS 1.3 suites");
+    }
+
+    if (SSL_CTX_set_cipher_list(ctx, profile.ciphers.c_str()) != 1) {
+        ERR_clear_error();
+        return srs_error_new(ERROR_SYSTEM_CONFIG_INVALID, "tls ciphers=%s has no valid cipher", profile.ciphers.c_str());
+    }
+
+    // The security floor: forward secrecy by ECDHE, and an AEAD cipher, so no static RSA and no CBC.
+    STACK_OF(SSL_CIPHER)* ciphers = SSL_CTX_get_ciphers(ctx);
+    for (int i = 0; i < sk_SSL_CIPHER_num(ciphers); i++) {
+        const SSL_CIPHER* c = sk_SSL_CIPHER_value(ciphers, i);
+        if (SSL_CIPHER_get_kx_nid(c) != NID_kx_ecdhe || SSL_CIPHER_is_aead(c) != 1) {
+            return srs_error_new(ERROR_SYSTEM_CONFIG_INVALID, "tls cipher %s is below the security floor, which requires ECDHE and AEAD",
+                SSL_CIPHER_get_name(c));
+        }
+    }
+
+    if (SSL_CTX_set1_groups_list(ctx, profile.groups.c_str()) != 1) {
+        ERR_clear_error();
+        return srs_error_new(ERROR_SYSTEM_CONFIG_INVALID, "tls groups=%s is invalid", profile.groups.c_str());
+    }
+
+    // The key is RSA, so an RSA signature algorithm is required, and none may use SHA-1 or MD5.
+    bool has_rsa = false;
+    vector<string> sigalgs = srs_string_split(profile.sigalgs, ":");
+    for (int i = 0; i < (int)sigalgs.size(); i++) {
+        string alg = sigalgs.at(i);
+        std::transform(alg.begin(), alg.end(), alg.begin(), ::tolower);
+        if (alg.find("sha1") != string::npos || alg.find("md5") != string::npos) {
+            return srs_error_new(ERROR_SYSTEM_CONFIG_INVALID, "tls sigalg %s is below the security floor, which forbids SHA-1 and MD5",
+                sigalgs.at(i).c_str());
+        }
+        if (srs_string_starts_with(alg, "rsa")) {
+            has_rsa = true;
+        }
+    }
+    if (!has_rsa) {
+        return srs_error_new(ERROR_SYSTEM_CONFIG_INVALID, "tls sigalgs=%s has no RSA algorithm for the RSA key", profile.sigalgs.c_str());
+    }
+
+    if (SSL_CTX_set1_sigalgs_list(ctx, profile.sigalgs.c_str()) != 1) {
+        ERR_clear_error();
+        return srs_error_new(ERROR_SYSTEM_CONFIG_INVALID, "tls sigalgs=%s is invalid", profile.sigalgs.c_str());
+    }
+
+    return srs_success;
+#endif
+}
+
+srs_error_t srs_tls_check_key(EVP_PKEY* pkey)
+{
+    if (!pkey) {
+        return srs_error_new(ERROR_HTTPS_KEY_CRT, "no key");
+    }
+
+    int type = EVP_PKEY_base_id(pkey);
+    if (type != EVP_PKEY_RSA) {
+        const char* name = OBJ_nid2sn(type);
+        return srs_error_new(ERROR_HTTPS_KEY_CRT, "key type %s is not RSA", name ? name : "unknown");
+    }
+
+    int bits = EVP_PKEY_bits(pkey);
+    if (bits < SRS_TLS_MIN_RSA_BITS) {
+        return srs_error_new(ERROR_HTTPS_KEY_CRT, "RSA key of %d bits is smaller than %d bits", bits, SRS_TLS_MIN_RSA_BITS);
+    }
+
+    return srs_success;
+}
+
+// Free the SSL_CTX when out of scope.
+class SrsSslCtxFreer
+{
+private:
+    SSL_CTX* ctx_;
+public:
+    SrsSslCtxFreer(SSL_CTX* ctx) : ctx_(ctx) {}
+    ~SrsSslCtxFreer() { if (ctx_) SSL_CTX_free(ctx_); }
+};
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+srs_error_t srs_tls_check_server(string key_file, string crt_file, const SrsTlsProfile& profile, string& summary)
+{
+    srs_error_t err = srs_success;
+
+    SSL_CTX* ctx = SSL_CTX_new(TLSv1_2_method());
+    if (!ctx) {
+        return srs_error_new(ERROR_HTTPS_HANDSHAKE, "SSL_CTX_new");
+    }
+    SrsSslCtxFreer ctx_freer(ctx);
+
+    if ((err = srs_tls_apply_profile(ctx, profile)) != srs_success) {
+        return srs_error_wrap(err, "profile");
+    }
+
+    if (SSL_CTX_use_certificate_chain_file(ctx, crt_file.c_str()) != 1) {
+        ERR_clear_error();
+        return srs_error_new(ERROR_HTTPS_KEY_CRT, "use cert %s", crt_file.c_str());
+    }
+
+    // Read the key alone first, so a wrong type or size, and a key of another cert, have their own errors.
+    EVP_PKEY* pkey = NULL;
+    if (true) {
+        BIO* bio = BIO_new_file(key_file.c_str(), "r");
+        if (bio) {
+            pkey = PEM_read_bio_PrivateKey(bio, NULL, NULL, NULL);
+            BIO_free(bio);
+        }
+        if (!pkey) {
+            ERR_clear_error();
+            return srs_error_new(ERROR_HTTPS_KEY_CRT, "use key %s", key_file.c_str());
+        }
+    }
+
+    err = srs_tls_check_key(pkey);
+    // The SSL_CTX holds its own reference to the key, so free ours.
+    int r0 = (err == srs_success) ? SSL_CTX_use_PrivateKey(ctx, pkey) : 1;
+    EVP_PKEY_free(pkey);
+
+    if (err != srs_success) {
+        return srs_error_wrap(err, "key %s", key_file.c_str());
+    }
+    if (r0 != 1 || SSL_CTX_check_private_key(ctx) != 1) {
+        ERR_clear_error();
+        return srs_error_new(ERROR_HTTPS_KEY_CRT, "key %s does not match cert %s", key_file.c_str(), crt_file.c_str());
+    }
+
+    // The final ciphers, as OpenSSL expands the list, in the order of the server.
+    vector<string> names;
+    STACK_OF(SSL_CIPHER)* ciphers = SSL_CTX_get_ciphers(ctx);
+    for (int i = 0; i < sk_SSL_CIPHER_num(ciphers); i++) {
+        names.push_back(SSL_CIPHER_get_name(sk_SSL_CIPHER_value(ciphers, i)));
+    }
+
+    summary = srs_fmt("openssl=%s, tls=TLSv1.2, ciphers=%s, groups=%s, sigalgs=%s", OPENSSL_VERSION_TEXT,
+        srs_join_vector_string(names, ":").c_str(), profile.groups.c_str(), profile.sigalgs.c_str());
+
+    return err;
+}
+#pragma GCC diagnostic pop
+
 SrsSslConnection::SrsSslConnection(ISrsProtocolReadWriter* c)
 {
     transport = c;
@@ -713,7 +876,7 @@ SrsSslConnection::~SrsSslConnection()
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-srs_error_t SrsSslConnection::handshake(string key_file, string crt_file)
+srs_error_t SrsSslConnection::handshake(string key_file, string crt_file, const SrsTlsProfile& profile)
 {
     srs_error_t err = srs_success;
 
@@ -723,10 +886,20 @@ srs_error_t SrsSslConnection::handshake(string key_file, string crt_file)
 #else
     ssl_ctx = SSL_CTX_new(TLSv1_2_method());
 #endif
+    if (!ssl_ctx) {
+        return srs_error_new(ERROR_HTTPS_HANDSHAKE, "SSL_CTX_new");
+    }
     SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
-    srs_assert(SSL_CTX_set_cipher_list(ssl_ctx, "ALL") == 1);
 #if (OPENSSL_VERSION_NUMBER >= 0x10101000L) // v1.1.1
+    if ((err = srs_tls_apply_profile(ssl_ctx, profile)) != srs_success) {
+        return srs_error_wrap(err, "tls profile");
+    }
     SSL_CTX_set_client_hello_cb(ssl_ctx, on_client_hello, this);
+#else
+    // Without OpenSSL 1.1.1 there is no TLS profile, see srs_tls_apply_profile.
+    if (SSL_CTX_set_cipher_list(ssl_ctx, "ALL") != 1) {
+        return srs_error_new(ERROR_HTTPS_HANDSHAKE, "set cipher list");
+    }
 #endif
 
     // TODO: Setup callback, see SSL_set_ex_data and SSL_set_info_callback
@@ -757,8 +930,13 @@ srs_error_t SrsSslConnection::handshake(string key_file, string crt_file)
         return srs_error_new(ERROR_HTTPS_KEY_CRT, "use cert %s", crt_file.c_str());
     }
 
-    if ((r0 = SSL_use_RSAPrivateKey_file(ssl, key_file.c_str(), SSL_FILETYPE_PEM)) != 1) {
+    if ((r0 = SSL_use_PrivateKey_file(ssl, key_file.c_str(), SSL_FILETYPE_PEM)) != 1) {
         return srs_error_new(ERROR_HTTPS_KEY_CRT, "use key %s", key_file.c_str());
+    }
+
+    // The files are read for each connection, so a key replaced after the start is checked here.
+    if ((err = srs_tls_check_key(SSL_get_privatekey(ssl))) != srs_success) {
+        return srs_error_wrap(err, "key %s", key_file.c_str());
     }
 
     if ((r0 = SSL_check_private_key(ssl)) != 1) {

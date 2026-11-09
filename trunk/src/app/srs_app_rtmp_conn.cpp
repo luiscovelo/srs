@@ -203,7 +203,12 @@ srs_error_t SrsRtmpsTransport::handshake()
     string crt_file = _srs_config->get_rtmps_ssl_cert();
     string key_file = _srs_config->get_rtmps_ssl_key();
 
-    srs_error_t err = ssl_->handshake(key_file, crt_file);
+    SrsTlsProfile profile;
+    profile.ciphers = _srs_config->get_rtmps_ciphers();
+    profile.groups = _srs_config->get_rtmps_groups();
+    profile.sigalgs = _srs_config->get_rtmps_sigalgs();
+
+    srs_error_t err = ssl_->handshake(key_file, crt_file, profile);
     if (err != srs_success) {
         // The versions the client offers tell why it fails, such as a client that only accepts TLS 1.3.
         string versions = ssl_->tls_client_versions();

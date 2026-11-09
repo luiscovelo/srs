@@ -378,7 +378,8 @@ srs_error_t SrsHttpxConn::on_start()
     // Do SSL handshake if HTTPS.
     if (ssl)  {
         srs_utime_t starttime = srs_update_system_time();
-        if ((err = ssl->handshake(ssl_key_file_, ssl_cert_file_)) != srs_success) {
+        // HTTPS uses the default TLS profile, the same as RTMPS without config.
+        if ((err = ssl->handshake(ssl_key_file_, ssl_cert_file_, SrsTlsProfile())) != srs_success) {
             return srs_error_wrap(err, "handshake");
         }
 
