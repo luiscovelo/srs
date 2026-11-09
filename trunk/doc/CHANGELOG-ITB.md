@@ -5,6 +5,8 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.16, 2026-11-09, OpenSSL: Upgrade the bundled `openssl-1.1-fit` from 1.1.1l to 1.1.1w, the last public 1.1.1 release, which fixes the public 1.1.1 advisories published after 1.1.1l, such as CVE-2022-0778, CVE-2022-4304 and CVE-2023-0286. Build with `--ssl-local=on` so a prebuilt OpenSSL in the build image, like the 1.1.1j in `ossrs/srs:ubuntu20`, is not used instead. Based on upstream v6.0.191.
+* v6.0-itb.16, 2026-11-09, Fork: Bump the fork display version to `6.0.191-itb.16`. Based on upstream v6.0.191.
 * v6.0-itb.15, 2026-11-05, Metrics: Export `srs_rtmp_publishers` on `/metrics`, a gauge of the RTMP publishers by transport, labeled `ssl` for RTMPS and `plaintext` for RTMP like the transport in logs, counting only publishers that own a stream, so rejected publishes and connections waiting to republish are excluded. Based on upstream v6.0.191.
 * v6.0-itb.15, 2026-11-05, Tests: Add unit coverage for the RTMP publisher counters by transport, including republish and unbalanced stops, and for the TLS detection of the RTMP transports. Based on upstream v6.0.191.
 * v6.0-itb.15, 2026-11-05, Fork: Bump the fork display version to `6.0.191-itb.15`. Based on upstream v6.0.191.
