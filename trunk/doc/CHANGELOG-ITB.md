@@ -5,6 +5,11 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.18, 2026-11-10, RTMPS: Log the ciphers the client offers, in its order, as `client_ciphers` in the `client identified` line, to review the server order in the camera tests. Based on upstream v6.0.191.
+* v6.0-itb.18, 2026-11-10, RTMPS: Log the ciphers, groups and signature algorithms the client offers when the TLS handshake fails, as `client_ciphers`, `client_groups` and `client_sigalgs`. Based on upstream v6.0.191.
+* v6.0-itb.18, 2026-11-10, TLS: Log the OpenSSL reason when the handshake fails, such as `reason=no shared cipher`, for RTMPS and HTTPS, and clear the OpenSSL error queue before the handshake so errors of other coroutines are not taken. Based on upstream v6.0.191.
+* v6.0-itb.18, 2026-11-10, Tests: Add unit coverage for the offered ciphers, groups and signature algorithms in the logs and the handshake failure reasons. Based on upstream v6.0.191.
+* v6.0-itb.18, 2026-11-10, Fork: Bump the fork display version to `6.0.191-itb.18`. Based on upstream v6.0.191.
 * v6.0-itb.17, 2026-11-09, RTMPS: Restrict TLS to ECDHE with AEAD ciphers in the server order, `X25519:P-256:P-384` groups and RSA signatures without SHA-1, and disable renegotiation, session tickets and compression, with `ciphers`, `groups` and `sigalgs` directives and `SRS_RTMPS_CIPHERS`, `SRS_RTMPS_GROUPS` and `SRS_RTMPS_SIGALGS` to change the lists. Based on upstream v6.0.191.
 * v6.0-itb.17, 2026-11-09, RTMPS: Check the TLS profile, key and cert at start, and refuse to start when a cipher lacks ECDHE or AEAD, a signature uses SHA-1 or MD5, or the key is not RSA of 2048 bits or more, logging the OpenSSL version and the final lists. Based on upstream v6.0.191.
 * v6.0-itb.17, 2026-11-09, HTTPS: Use the same default TLS profile and key checks as RTMPS for the HTTPS API and server. Based on upstream v6.0.191.
