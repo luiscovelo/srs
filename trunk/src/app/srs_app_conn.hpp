@@ -303,6 +303,11 @@ private:
     BIO* bio_out;
     // The TLS versions the client offers in its ClientHello, such as "TLSv1.3|TLSv1.2".
     std::string client_versions_;
+    // The ciphers, groups and signature algorithms the client offers in its ClientHello, in the
+    // client order and in the format of the rtmps directives, such as "X25519:P-256".
+    std::string client_ciphers_;
+    std::string client_groups_;
+    std::string client_sigalgs_;
 public:
     SrsSslConnection(ISrsProtocolReadWriter* c);
     virtual ~SrsSslConnection();
@@ -316,6 +321,12 @@ public:
     // handshake then fails. A client without the supported_versions extension offers one version,
     // the highest it supports, as TLS 1.2 and older clients do.
     virtual std::string tls_client_versions();
+    // The ciphers, groups and signature algorithms the client offers, known once its ClientHello is
+    // received, even if the handshake then fails. GREASE values and signaling cipher suites are
+    // ignored, and the values without a name are in hex, such as "0x00a5".
+    virtual std::string tls_client_ciphers();
+    virtual std::string tls_client_groups();
+    virtual std::string tls_client_sigalgs();
 private:
     static int on_client_hello(SSL* ssl, int* al, void* arg);
 // Interface ISrsProtocolReadWriter

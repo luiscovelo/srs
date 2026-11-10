@@ -853,6 +853,106 @@ srs_error_t srs_tls_check_server(string key_file, string crt_file, const SrsTlsP
 }
 #pragma GCC diagnostic pop
 
+// Take the reasons of the errors from the OpenSSL error queue, such as "no shared cipher", which
+// also clears the queue. Note that the queue is shared by all coroutines of the thread, so call it
+// just after the OpenSSL function, without switching to another coroutine.
+static string srs_ssl_error_reasons()
+{
+    string reasons;
+    for (unsigned long e = ERR_get_error(); e != 0; e = ERR_get_error()) {
+        const char* reason = ERR_reason_error_string(e);
+        reasons += (reasons.empty() ? "" : "|") + (reason ? string(reason) : srs_fmt("0x%lx", e));
+    }
+    return reasons.empty() ? "none" : reasons;
+}
+
+#if (OPENSSL_VERSION_NUMBER >= 0x10101000L) // v1.1.1
+// The GREASE values, such as 0x0a0a, are random values a client sends to keep servers tolerant of
+// unknown values, so they are not real ciphers, groups or algorithms, see RFC 8701.
+static bool srs_tls_is_grease(int v)
+{
+    return (v & 0x0f0f) == 0x0a0a && (v >> 8) == (v & 0xff);
+}
+
+// The name of a group in the format of the rtmps groups directive, see RFC 8446 and RFC 7919.
+static string srs_tls_group_name(int v)
+{
+    switch (v) {
+        case 0x0017: return "P-256";
+        case 0x0018: return "P-384";
+        case 0x0019: return "P-521";
+        case 0x001d: return "X25519";
+        case 0x001e: return "X448";
+        case 0x001a: return "brainpoolP256r1";
+        case 0x001b: return "brainpoolP384r1";
+        case 0x001c: return "brainpoolP512r1";
+        case 0x0100: return "ffdhe2048";
+        case 0x0101: return "ffdhe3072";
+        case 0x0102: return "ffdhe4096";
+        case 0x0103: return "ffdhe6144";
+        case 0x0104: return "ffdhe8192";
+        default: return srs_fmt("0x%04x", v);
+    }
+}
+
+// The name of a signature algorithm in the format of the rtmps sigalgs directive, see RFC 5246
+// and RFC 8446.
+static string srs_tls_sigalg_name(int v)
+{
+    switch (v) {
+        case 0x0101: return "RSA+MD5";
+        case 0x0201: return "RSA+SHA1";
+        case 0x0301: return "RSA+SHA224";
+        case 0x0401: return "RSA+SHA256";
+        case 0x0501: return "RSA+SHA384";
+        case 0x0601: return "RSA+SHA512";
+        case 0x0202: return "DSA+SHA1";
+        case 0x0302: return "DSA+SHA224";
+        case 0x0402: return "DSA+SHA256";
+        case 0x0203: return "ECDSA+SHA1";
+        case 0x0303: return "ECDSA+SHA224";
+        case 0x0403: return "ECDSA+SHA256";
+        case 0x0503: return "ECDSA+SHA384";
+        case 0x0603: return "ECDSA+SHA512";
+        case 0x0804: return "rsa_pss_rsae_sha256";
+        case 0x0805: return "rsa_pss_rsae_sha384";
+        case 0x0806: return "rsa_pss_rsae_sha512";
+        case 0x0807: return "ed25519";
+        case 0x0808: return "ed448";
+        case 0x0809: return "rsa_pss_pss_sha256";
+        case 0x080a: return "rsa_pss_pss_sha384";
+        case 0x080b: return "rsa_pss_pss_sha512";
+        default: return srs_fmt("0x%04x", v);
+    }
+}
+
+// Get the 2-byte values of a ClientHello extension with a 2-byte length, such as supported_groups
+// and signature_algorithms, without the GREASE values. A malformed extension has no values.
+static vector<int> srs_tls_client_hello_u16_list(SSL* ssl, int type)
+{
+    vector<int> values;
+
+    const unsigned char* ext = NULL; size_t size = 0;
+    if (!SSL_client_hello_get0_ext(ssl, type, &ext, &size) || size < 2) {
+        return values;
+    }
+
+    size_t length = (ext[0] << 8) | ext[1];
+    if (length + 2 > size || length % 2 != 0) {
+        return values;
+    }
+
+    for (size_t i = 2; i + 1 < length + 2; i += 2) {
+        int v = (ext[i] << 8) | ext[i + 1];
+        if (!srs_tls_is_grease(v)) {
+            values.push_back(v);
+        }
+    }
+
+    return values;
+}
+#endif
+
 SrsSslConnection::SrsSslConnection(ISrsProtocolReadWriter* c)
 {
     transport = c;
@@ -957,9 +1057,11 @@ srs_error_t SrsSslConnection::handshake(string key_file, string crt_file, const 
             return srs_error_new(ERROR_HTTPS_HANDSHAKE, "BIO_write r0=%d, data=%p, size=%d", r0, buf, nn);
         }
 
-        r0 = SSL_do_handshake(ssl); r1 = SSL_get_error(ssl, r0); ERR_clear_error();
+        ERR_clear_error();
+        r0 = SSL_do_handshake(ssl); r1 = SSL_get_error(ssl, r0);
+        string reason = srs_ssl_error_reasons();
         if (r0 != -1 || r1 != SSL_ERROR_WANT_READ) {
-            return srs_error_new(ERROR_HTTPS_HANDSHAKE, "handshake r0=%d, r1=%d", r0, r1);
+            return srs_error_new(ERROR_HTTPS_HANDSHAKE, "handshake r0=%d, r1=%d, reason=%s", r0, r1, reason.c_str());
         }
 
         if ((size = BIO_get_mem_data(bio_out, &data)) > 0) {
@@ -999,13 +1101,15 @@ srs_error_t SrsSslConnection::handshake(string key_file, string crt_file, const 
             return srs_error_new(ERROR_HTTPS_HANDSHAKE, "BIO_write r0=%d, data=%p, size=%d", r0, buf, nn);
         }
 
-        r0 = SSL_do_handshake(ssl); r1 = SSL_get_error(ssl, r0); ERR_clear_error();
+        ERR_clear_error();
+        r0 = SSL_do_handshake(ssl); r1 = SSL_get_error(ssl, r0);
+        string reason = srs_ssl_error_reasons();
         if (r0 == 1 && r1 == SSL_ERROR_NONE) {
             break;
         }
 
         if (r0 != -1 || r1 != SSL_ERROR_WANT_READ) {
-            return srs_error_new(ERROR_HTTPS_HANDSHAKE, "handshake r0=%d, r1=%d", r0, r1);
+            return srs_error_new(ERROR_HTTPS_HANDSHAKE, "handshake r0=%d, r1=%d, reason=%s", r0, r1, reason.c_str());
         }
 
         if ((size = BIO_get_mem_data(bio_out, &data)) > 0) {
@@ -1060,6 +1164,21 @@ string SrsSslConnection::tls_client_versions()
     return client_versions_;
 }
 
+string SrsSslConnection::tls_client_ciphers()
+{
+    return client_ciphers_;
+}
+
+string SrsSslConnection::tls_client_groups()
+{
+    return client_groups_;
+}
+
+string SrsSslConnection::tls_client_sigalgs()
+{
+    return client_sigalgs_;
+}
+
 static string srs_tls_version_string(int v)
 {
     switch (v) {
@@ -1093,6 +1212,34 @@ int SrsSslConnection::on_client_hello(SSL* ssl, int* al, void* arg)
 
     if (conn->client_versions_.empty()) {
         conn->client_versions_ = srs_tls_version_string(SSL_client_hello_get0_legacy_version(ssl));
+    }
+
+    // The ciphers are 2-byte values, named as OpenSSL does in the ciphers directive. The signaling
+    // cipher suites, TLS_EMPTY_RENEGOTIATION_INFO_SCSV and TLS_FALLBACK_SCSV, are not ciphers.
+    conn->client_ciphers_ = "";
+    const unsigned char* ciphers = NULL;
+    size_t nn_ciphers = SSL_client_hello_get0_ciphers(ssl, &ciphers);
+    for (size_t i = 0; i + 1 < nn_ciphers; i += 2) {
+        int v = (ciphers[i] << 8) | ciphers[i + 1];
+        if (srs_tls_is_grease(v) || v == 0x00ff || v == 0x5600) {
+            continue;
+        }
+
+        const SSL_CIPHER* cipher = SSL_CIPHER_find(ssl, ciphers + i);
+        string name = cipher ? SSL_CIPHER_get_name(cipher) : srs_fmt("0x%04x", v);
+        conn->client_ciphers_ += (conn->client_ciphers_.empty() ? "" : ":") + name;
+    }
+
+    conn->client_groups_ = "";
+    vector<int> groups = srs_tls_client_hello_u16_list(ssl, TLSEXT_TYPE_supported_groups);
+    for (int i = 0; i < (int)groups.size(); i++) {
+        conn->client_groups_ += (conn->client_groups_.empty() ? "" : ":") + srs_tls_group_name(groups[i]);
+    }
+
+    conn->client_sigalgs_ = "";
+    vector<int> sigalgs = srs_tls_client_hello_u16_list(ssl, TLSEXT_TYPE_signature_algorithms);
+    for (int i = 0; i < (int)sigalgs.size(); i++) {
+        conn->client_sigalgs_ += (conn->client_sigalgs_.empty() ? "" : ":") + srs_tls_sigalg_name(sigalgs[i]);
     }
 #endif
 

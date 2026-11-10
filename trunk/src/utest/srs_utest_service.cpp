@@ -191,8 +191,10 @@ struct MockTlsClient
     // The TLS versions the client accepts, 0 for the default of OpenSSL.
     int min_version;
     int max_version;
-    // The TLS 1.2 ciphers the client offers, empty for the default of OpenSSL.
+    // The TLS 1.2 ciphers, groups and signature algorithms the client offers, empty for the default of OpenSSL.
     string cipher_list;
+    string groups;
+    string sigalgs;
     string cipher;
     bool ok;
 };
@@ -216,6 +218,12 @@ static void* mock_tls_client_cycle(void* arg)
     }
     if (!c->cipher_list.empty()) {
         SSL_set_cipher_list(ssl, c->cipher_list.c_str());
+    }
+    if (!c->groups.empty()) {
+        SSL_set1_groups_list(ssl, c->groups.c_str());
+    }
+    if (!c->sigalgs.empty()) {
+        SSL_set1_sigalgs_list(ssl, c->sigalgs.c_str());
     }
 
     for (int i = 0; i < 100; i++) {
@@ -282,8 +290,11 @@ static void expect_rtmps_transport_info(string sni, int min_version, int max_ver
     ASSERT_TRUE(client.ok);
     ASSERT_FALSE(client.cipher.empty());
 
-    string expect = "transport=ssl, tls=TLSv1.2, client_tls=" + expect_client_tls + ", cipher=" + client.cipher + ", sni=" + expect_sni;
-    EXPECT_STREQ(expect.c_str(), info.c_str());
+    // The default ciphers of the client depend on its OpenSSL, so only check they are logged last.
+    string expect = "transport=ssl, tls=TLSv1.2, client_tls=" + expect_client_tls + ", cipher=" + client.cipher + ", sni=" + expect_sni
+        + ", client_ciphers=";
+    EXPECT_EQ(0, (int)info.find(expect)) << info;
+    EXPECT_TRUE(info.find("ECDHE-RSA-CHACHA20-POLY1305", expect.length()) != string::npos) << info;
 }
 
 VOID TEST(RtmpTransportTest, TransportInfo)
@@ -295,6 +306,9 @@ VOID TEST(RtmpTransportTest, TransportInfo)
         EXPECT_STREQ("", ssl.tls_cipher().c_str());
         EXPECT_STREQ("", ssl.tls_server_name().c_str());
         EXPECT_STREQ("", ssl.tls_client_versions().c_str());
+        EXPECT_STREQ("", ssl.tls_client_ciphers().c_str());
+        EXPECT_STREQ("", ssl.tls_client_groups().c_str());
+        EXPECT_STREQ("", ssl.tls_client_sigalgs().c_str());
     }
 
     if (true) {
@@ -378,6 +392,83 @@ VOID TEST(RtmpTransportTest, RtmpsUsesTlsProfile)
         do_rtmps_handshake(client, info, error);
         EXPECT_FALSE(client.ok);
         EXPECT_FALSE(error.empty());
+    }
+}
+
+VOID TEST(RtmpTransportTest, RtmpsLogsClientOffer)
+{
+    // The ciphers the client offers are logged in its order, without the renegotiation SCSV it sends.
+    if (true) {
+        MockTlsClient client;
+        client.min_version = 0;
+        client.max_version = TLS1_2_VERSION;
+        client.cipher_list = "ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-CHACHA20-POLY1305";
+
+        string info, error;
+        do_rtmps_handshake(client, info, error);
+        ASSERT_TRUE(error.empty()) << error;
+        ASSERT_TRUE(client.ok);
+        EXPECT_STREQ("transport=ssl, tls=TLSv1.2, client_tls=TLSv1.2, cipher=ECDHE-RSA-CHACHA20-POLY1305, sni=none, "
+            "client_ciphers=ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-CHACHA20-POLY1305", info.c_str());
+    }
+
+    // A client without a cipher in common is refused, and the error tells why and what it offers. As it
+    // offers no ECDHE cipher, it sends no groups.
+    if (true) {
+        MockTlsClient client;
+        client.min_version = 0;
+        client.max_version = TLS1_2_VERSION;
+        client.cipher_list = "AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA";
+        client.groups = "P-256:X25519";
+        client.sigalgs = "RSA+SHA256:ECDSA+SHA256";
+
+        string info, error;
+        do_rtmps_handshake(client, info, error);
+        EXPECT_FALSE(client.ok);
+        EXPECT_TRUE(error.find("reason=no shared cipher") != string::npos) << error;
+        EXPECT_TRUE(error.find("client_tls=TLSv1.2, client_ciphers=AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA, "
+            "client_groups=none, client_sigalgs=RSA+SHA256:ECDSA+SHA256") != string::npos) << error;
+    }
+
+    // A client without a group in common is refused, as the ECDHE ciphers need a group.
+    if (true) {
+        MockTlsClient client;
+        client.min_version = 0;
+        client.max_version = TLS1_2_VERSION;
+        client.groups = "P-521:brainpoolP256r1";
+
+        string info, error;
+        do_rtmps_handshake(client, info, error);
+        EXPECT_FALSE(client.ok);
+        EXPECT_TRUE(error.find("reason=no shared cipher") != string::npos) << error;
+        EXPECT_TRUE(error.find("client_groups=P-521:brainpoolP256r1, ") != string::npos) << error;
+    }
+
+    // A client without a signature algorithm in common is refused.
+    if (true) {
+        MockTlsClient client;
+        client.min_version = 0;
+        client.max_version = TLS1_2_VERSION;
+        client.sigalgs = "RSA+SHA1:ECDSA+SHA256:rsa_pss_rsae_sha256";
+
+        string info, error;
+        do_rtmps_handshake(client, info, error);
+        EXPECT_FALSE(client.ok);
+        EXPECT_TRUE(error.find("reason=none") == string::npos) << error;
+        EXPECT_TRUE(error.find("client_sigalgs=RSA+SHA1:ECDSA+SHA256:rsa_pss_rsae_sha256") != string::npos) << error;
+    }
+
+    // A client that only accepts TLS 1.3 is refused, and the reason tells the version.
+    if (true) {
+        MockTlsClient client;
+        client.min_version = TLS1_3_VERSION;
+        client.max_version = 0;
+
+        string info, error;
+        do_rtmps_handshake(client, info, error);
+        EXPECT_FALSE(client.ok);
+        EXPECT_TRUE(error.find("reason=none") == string::npos) << error;
+        EXPECT_TRUE(error.find("client_ciphers=TLS_") != string::npos) << error;
     }
 }
 

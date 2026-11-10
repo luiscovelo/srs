@@ -183,6 +183,12 @@ int64_t SrsRtmpTransport::get_send_bytes()
     return skt_->get_send_bytes();
 }
 
+// The value for logs, "none" if empty.
+static string srs_or_none(const string& v)
+{
+    return v.empty() ? "none" : v;
+}
+
 SrsRtmpsTransport::SrsRtmpsTransport(srs_netfd_t c) : SrsRtmpTransport(c)
 {
     ssl_ = new SrsSslConnection(skt_);
@@ -210,9 +216,11 @@ srs_error_t SrsRtmpsTransport::handshake()
 
     srs_error_t err = ssl_->handshake(key_file, crt_file, profile);
     if (err != srs_success) {
-        // The versions the client offers tell why it fails, such as a client that only accepts TLS 1.3.
-        string versions = ssl_->tls_client_versions();
-        return srs_error_wrap(err, "ssl handshake, client_tls=%s", versions.empty() ? "none" : versions.c_str());
+        // What the client offers tells why it fails, such as a client that only accepts TLS 1.3, or
+        // that has no cipher, group or signature algorithm in common with the server.
+        return srs_error_wrap(err, "ssl handshake, client_tls=%s, client_ciphers=%s, client_groups=%s, client_sigalgs=%s",
+            srs_or_none(ssl_->tls_client_versions()).c_str(), srs_or_none(ssl_->tls_client_ciphers()).c_str(),
+            srs_or_none(ssl_->tls_client_groups()).c_str(), srs_or_none(ssl_->tls_client_sigalgs()).c_str());
     }
 
     return srs_success;
@@ -230,9 +238,10 @@ bool SrsRtmpsTransport::is_tls()
 
 string SrsRtmpsTransport::transport_info()
 {
-    string sni = ssl_->tls_server_name();
-    return srs_fmt("transport=%s, tls=%s, client_tls=%s, cipher=%s, sni=%s", transport_type(), ssl_->tls_version().c_str(),
-        ssl_->tls_client_versions().c_str(), ssl_->tls_cipher().c_str(), sni.empty() ? "none" : sni.c_str());
+    // The ciphers the client offers, in its order, are last, as the list is long.
+    return srs_fmt("transport=%s, tls=%s, client_tls=%s, cipher=%s, sni=%s, client_ciphers=%s", transport_type(),
+        ssl_->tls_version().c_str(), ssl_->tls_client_versions().c_str(), ssl_->tls_cipher().c_str(),
+        srs_or_none(ssl_->tls_server_name()).c_str(), srs_or_none(ssl_->tls_client_ciphers()).c_str());
 }
 
 SrsRtmpConn::SrsRtmpConn(SrsServer* svr, SrsRtmpTransport* transport, string cip, int cport)
