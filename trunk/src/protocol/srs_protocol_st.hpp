@@ -9,6 +9,7 @@
 
 #include <srs_core.hpp>
 
+#include <errno.h>
 #include <string>
 
 #include <srs_protocol_io.hpp>
@@ -109,7 +110,13 @@ private:
 public:
     impl__SrsLocker(srs_mutex_t* l) {
         lock = l;
-        int r0 = srs_mutex_lock(*lock);
+
+        // An interrupt pending or arriving while waiting fails the lock with EINTR, for example an RTMP client kicked
+        // off by the HTTP API. The coroutine keeps the stop and its cycle checks it by pull(), so take the lock anyway,
+        // as srs_thread_join is retried, instead of aborting the server.
+        int r0 = 0;
+        while ((r0 = srs_mutex_lock(*lock)) != 0 && errno == EINTR) {
+        }
         srs_assert(!r0);
     }
     virtual ~impl__SrsLocker() {

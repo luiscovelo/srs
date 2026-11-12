@@ -923,6 +923,27 @@ VOID TEST(AppCoroutineTest, StopChildWhenCallerInterrupted)
     HELPER_EXPECT_SUCCESS(err);
 }
 
+// An interrupt pending on the coroutine, for example a client kicked off by the HTTP API, fails the mutex lock with
+// EINTR. The locker takes the lock anyway, instead of aborting the server. Backported from upstream v7.0.213.
+VOID TEST(AppCoroutineTest, LockerWhenInterrupted)
+{
+    srs_mutex_t lock = srs_mutex_new();
+
+    srs_thread_interrupt(srs_thread_self());
+    if (true) {
+        SrsLocker(lock);
+        // The lock is held, so taking it again fails with EDEADLK.
+        EXPECT_NE(0, srs_mutex_lock(lock));
+        EXPECT_EQ(EDEADLK, errno);
+    }
+
+    // The locker released it.
+    EXPECT_EQ(0, srs_mutex_lock(lock));
+    EXPECT_EQ(0, srs_mutex_unlock(lock));
+
+    srs_mutex_destroy(lock);
+}
+
 VOID TEST(AppCoroutineTest, Cycle)
 {
     if (true) {
