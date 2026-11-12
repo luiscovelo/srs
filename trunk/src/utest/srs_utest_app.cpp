@@ -33,6 +33,9 @@ using namespace std;
 #include <srs_app_conn.hpp>
 #include <srs_protocol_st.hpp>
 #include <srs_protocol_rtmp_stack.hpp>
+#include <srs_kernel_mp4.hpp>
+#include <srs_kernel_buffer.hpp>
+#include <srs_utest_kernel.hpp>
 
 class MockCountingLog : public ISrsLog
 {
@@ -1608,4 +1611,211 @@ VOID TEST(AppLiveSourceTest, PendingClientLeavesPublishingSource)
 
     EXPECT_EQ(0, source->stream_die_at_);
     EXPECT_FALSE(source->stream_is_dead());
+}
+
+class MockSrsDvrCutSegmenter : public MockSrsDvrFileSizeSegmenter
+{
+public:
+    int nb_close;
+public:
+    MockSrsDvrCutSegmenter() {
+        nb_close = 0;
+    }
+public:
+    virtual srs_error_t open() {
+        return srs_success;
+    }
+    virtual srs_error_t close() {
+        nb_close++;
+        return srs_success;
+    }
+};
+
+class MockSrsDvrCutHub : public SrsOriginHub
+{
+public:
+    virtual srs_error_t on_dvr_request_sh() {
+        return srs_success;
+    }
+};
+
+// A media message at the timestamp in ms, an H.264 keyframe or inter frame, or an AAC frame.
+static SrsSharedPtrMessage* mock_dvr_cut_frame(bool video, int64_t timestamp, bool keyframe)
+{
+    char* data = new char[10];
+    data[0] = video ? (keyframe ? 0x17 : 0x27) : (char)0xaf;
+    data[1] = 0x01;
+    memset(data + 2, 0, 8);
+
+    SrsMessageHeader h;
+    h.message_type = video ? RTMP_MSG_VideoMessage : RTMP_MSG_AudioMessage;
+    h.timestamp = timestamp;
+
+    SrsSharedPtrMessage* msg = new SrsSharedPtrMessage();
+    msg->create(&h, data, 10);
+    return msg;
+}
+
+class MockSrsDvrCutPlan
+{
+public:
+    MockSrsDvrCutHub hub;
+    SrsDvrSegmentPlan plan;
+    MockSrsDvrCutSegmenter* segmenter;
+public:
+    MockSrsDvrCutPlan(bool has_video) {
+        segmenter = new MockSrsDvrCutSegmenter();
+        plan.segment = segmenter;
+        plan.hub = &hub;
+        plan.dvr_enabled = true;
+        plan.cduration = 2 * SRS_UTIME_SECONDS;
+        plan.wait_keyframe = true;
+        plan.has_video_ = has_video;
+    }
+    // Feed the message to the plan, then append it to the file as the segmenter does.
+    srs_error_t feed(bool video, int64_t timestamp, bool keyframe) {
+        SrsUniquePtr<SrsSharedPtrMessage> msg(mock_dvr_cut_frame(video, timestamp, keyframe));
+        srs_error_t err = plan.update_duration(msg.get());
+        segmenter->fragment->append(timestamp);
+        return err;
+    }
+};
+
+// With dvr_duration 2s and a keyframe each second, the keyframe at 2s cuts the file, though the last frame written,
+// at 1.96s, is before 2s. Backported from upstream v7.0.179.
+VOID TEST(AppDvrTest, KeyframeAtDurationCutsSegment)
+{
+    srs_error_t err;
+    MockSrsDvrCutPlan m(true);
+
+    for (int64_t ts = 0; ts <= 1960; ts += 40) {
+        HELPER_EXPECT_SUCCESS(m.feed(true, ts, ts % 1000 == 0));
+    }
+    EXPECT_EQ(0, m.segmenter->nb_close);
+
+    HELPER_EXPECT_SUCCESS(m.feed(true, 2000, true));
+    EXPECT_EQ(1, m.segmenter->nb_close);
+}
+
+// A keyframe before dvr_duration doesn't cut the file, nor one after the timestamps jump back.
+VOID TEST(AppDvrTest, KeyframeBeforeDurationKeepsSegment)
+{
+    srs_error_t err;
+    MockSrsDvrCutPlan m(true);
+
+    for (int64_t ts = 0; ts <= 1960; ts += 40) {
+        HELPER_EXPECT_SUCCESS(m.feed(true, ts, ts == 0));
+    }
+    HELPER_EXPECT_SUCCESS(m.feed(true, 1990, true));
+    EXPECT_EQ(0, m.segmenter->nb_close);
+
+    // The timestamps jump back to 0: no time passed for the file.
+    HELPER_EXPECT_SUCCESS(m.feed(true, 0, true));
+    EXPECT_EQ(0, m.segmenter->nb_close);
+}
+
+// A publish with no video has no keyframe to wait for, so the audio frame at dvr_duration cuts the file.
+VOID TEST(AppDvrTest, AudioOnlyStreamCutsAtDuration)
+{
+    srs_error_t err;
+    MockSrsDvrCutPlan m(false);
+
+    for (int64_t ts = 0; ts <= 1980; ts += 20) {
+        HELPER_EXPECT_SUCCESS(m.feed(false, ts, false));
+    }
+    EXPECT_EQ(0, m.segmenter->nb_close);
+
+    HELPER_EXPECT_SUCCESS(m.feed(false, 2000, false));
+    EXPECT_EQ(1, m.segmenter->nb_close);
+}
+
+// The audio of a publish with video doesn't cut the file, which waits for a keyframe.
+VOID TEST(AppDvrTest, AudioOfVideoStreamWaitsForKeyframe)
+{
+    srs_error_t err;
+    MockSrsDvrCutPlan m(true);
+
+    HELPER_EXPECT_SUCCESS(m.feed(true, 0, true));
+    for (int64_t ts = 0; ts <= 2500; ts += 20) {
+        HELPER_EXPECT_SUCCESS(m.feed(false, ts, false));
+    }
+    EXPECT_EQ(0, m.segmenter->nb_close);
+
+    HELPER_EXPECT_SUCCESS(m.feed(true, 2520, true));
+    EXPECT_EQ(1, m.segmenter->nb_close);
+}
+
+// Each publish starts its timing and its video state again.
+VOID TEST(AppDvrTest, PublishResetsSegmentTiming)
+{
+    srs_error_t err;
+
+    MockSrsDvrFileSizeConfig config;
+    HELPER_ASSERT_SUCCESS(config.config.parse(_MIN_OK_CONF "vhost v{dvr{enabled on;}}"));
+
+    MockSrsDvrCutPlan m(true);
+    m.plan.req = new SrsRequest();
+    m.plan.req->vhost = "v";
+    HELPER_EXPECT_SUCCESS(m.feed(true, 5000, true));
+    EXPECT_EQ(5000, m.plan.last_timestamp_);
+
+    m.plan.dvr_enabled = false;
+    SrsRequest req;
+    req.vhost = "v";
+    HELPER_EXPECT_SUCCESS(m.plan.on_publish(&req));
+    EXPECT_EQ(-1, m.plan.last_timestamp_);
+    EXPECT_FALSE(m.plan.has_video_);
+    EXPECT_TRUE(m.plan.dvr_enabled);
+}
+
+// A video info frame, such as the colorInfo metadata of enhanced RTMP, holds no picture and doesn't set the sample,
+// so DVR to MP4 never writes it. Backported from upstream v7.0.179.
+VOID TEST(AppDvrTest, Mp4SkipsVideoInfoFrame)
+{
+    srs_error_t err;
+
+    SrsDvrMp4Segmenter segmenter;
+    // No encoder: writing the frame would crash.
+    srs_freep(segmenter.enc);
+
+    SrsFormat format;
+    format.vcodec = new SrsVideoCodecConfig();
+    format.vcodec->id = SrsVideoCodecIdHEVC;
+    format.video = new SrsVideoFrame();
+    format.video->frame_type = SrsVideoAvcFrameTypeVideoInfoFrame;
+    format.video->avc_packet_type = SrsVideoAvcFrameTraitNALU;
+
+    SrsUniquePtr<SrsSharedPtrMessage> msg(mock_dvr_cut_frame(true, 1000, false));
+    HELPER_EXPECT_SUCCESS(segmenter.encode_video(msg.get(), &format));
+}
+
+// The audio sample entry of the MP4 that DVR writes has its samplerate in 16.16 fixed point, as ISO/IEC 14496-12
+// has it and the SRS reader expects. Backported from upstream v7.0.179.
+VOID TEST(AppDvrTest, Mp4AudioSampleRateFixedPoint)
+{
+    srs_error_t err;
+
+    MockSrsFileWriter f;
+    if (true) {
+        SrsMp4Encoder enc;
+        HELPER_EXPECT_SUCCESS(enc.initialize(&f));
+        enc.acodec = SrsAudioCodecIdMP3;
+        enc.sample_rate = SrsAudioSampleRate44100;
+        enc.sound_bits = SrsAudioSampleBits16bit;
+        enc.channels = SrsAudioChannelsStereo;
+
+        uint8_t frame[4] = {0xff, 0xfb, 0x90, 0x64};
+        HELPER_EXPECT_SUCCESS(enc.write_sample(NULL, SrsMp4HandlerTypeSOUN, 0x00, 0x01, 0, 0, frame, sizeof(frame)));
+        HELPER_EXPECT_SUCCESS(enc.write_sample(NULL, SrsMp4HandlerTypeSOUN, 0x00, 0x01, 26, 26, frame, sizeof(frame)));
+        HELPER_EXPECT_SUCCESS(enc.flush());
+    }
+
+    // The samplerate is 24 bytes after the mp4a type: 6 reserved, the data reference index, 8 reserved,
+    // channelcount, samplesize, pre_defined and 2 reserved.
+    string data(f.data(), (size_t)f.filesize());
+    size_t pos = data.find("mp4a");
+    ASSERT_TRUE(pos != string::npos);
+    ASSERT_TRUE(pos + 4 + 28 <= data.size());
+    SrsBuffer b((char*)data.data() + pos + 4 + 24, 4);
+    EXPECT_EQ((uint32_t)44100 << 16, (uint32_t)b.read_4bytes());
 }

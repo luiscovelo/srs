@@ -518,6 +518,13 @@ srs_error_t SrsDvrMp4Segmenter::encode_video(SrsSharedPtrMessage* video, SrsForm
     SrsVideoAvcFrameType frame_type = format->video->frame_type;
     SrsVideoCodecId codec_id = format->vcodec->id;
     
+    // Ignore the info frame, such as the colorInfo metadata of enhanced RTMP: it holds no
+    // picture and does not set the sample, so writing it writes stale bytes. HLS skips it
+    // too, while FLV keeps it as a tag.
+    if (frame_type == SrsVideoAvcFrameTypeVideoInfoFrame) {
+        return err;
+    }
+    
     SrsVideoAvcFrameTrait ct = format->video->avc_packet_type;
     uint32_t cts = (uint32_t)format->video->cts;
     
@@ -776,6 +783,8 @@ SrsDvrSegmentPlan::SrsDvrSegmentPlan()
     cduration = 0;
     wait_keyframe = false;
     reopening_segment_ = false;
+    last_timestamp_ = -1;
+    has_video_ = false;
 }
 
 SrsDvrSegmentPlan::~SrsDvrSegmentPlan()
@@ -822,6 +831,8 @@ srs_error_t SrsDvrSegmentPlan::on_publish(SrsRequest* r)
         return srs_error_wrap(err, "segment open");
     }
     
+    last_timestamp_ = -1;
+    has_video_ = false;
     dvr_enabled = true;
     
     return err;
@@ -862,6 +873,8 @@ srs_error_t SrsDvrSegmentPlan::on_video(SrsSharedPtrMessage* shared_video, SrsFo
 {
     srs_error_t err = srs_success;
     
+    has_video_ = true;
+
     if ((err = update_duration(shared_video)) != srs_success) {
         return srs_error_wrap(err, "update duration");
     }
@@ -885,14 +898,24 @@ srs_error_t SrsDvrSegmentPlan::update_duration(SrsSharedPtrMessage* msg)
     
     srs_assert(segment);
     
-    // ignore if duration ok.
+    // The file spans up to this message, which comes after its last message, so
+    // with a GOP that divides the duration the keyframe at the duration cuts it.
     SrsFragment* fragment = segment->current();
-    if (cduration <= 0 || fragment->duration() < cduration) {
+    srs_utime_t duration = fragment->duration();
+    if (last_timestamp_ >= 0 && msg->timestamp > last_timestamp_) {
+        duration += (msg->timestamp - last_timestamp_) * SRS_UTIME_MILLISECONDS;
+    }
+    last_timestamp_ = msg->timestamp;
+
+    // ignore if duration ok.
+    if (cduration <= 0 || duration < cduration) {
         return err;
     }
     
-    // when wait keyframe, ignore if no frame arrived.
-    if (wait_keyframe) {
+    // when wait keyframe, ignore if no frame arrived. A publish with no video has no
+    // keyframe to wait for, so any message at the duration cuts it, as HLS and DASH
+    // cut pure audio by their duration.
+    if (wait_keyframe && has_video_) {
         if (!msg->is_video()) {
             return err;
         }

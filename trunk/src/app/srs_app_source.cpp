@@ -2637,7 +2637,13 @@ srs_error_t SrsLiveSource::on_aggregate(SrsCommonMessage* msg)
             return srs_error_new(ERROR_RTMP_AGGREGATE, "aggregate previous tag size");
         }
         stream->read_4bytes();
-        
+
+        // Ignore an empty tag, as SrsProtocol ignores an empty message; the muxers, such as the DVR, expect a payload
+        // and would write the stale sample of the previous message.
+        if (data_size == 0) {
+            continue;
+        }
+
         // process parsed message
         if (o.header.is_audio()) {
             if ((err = on_audio(&o)) != srs_success) {
