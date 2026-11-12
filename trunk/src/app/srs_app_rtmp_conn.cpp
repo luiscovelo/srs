@@ -270,7 +270,7 @@ SrsRtmpConn::SrsRtmpConn(SrsServer* svr, SrsRtmpTransport* transport, string cip
     
     rtmp = new SrsRtmpServer(transport_->io());
     refer = new SrsRefer();
-    security = new SrsSecurity();
+    security = new SrsEnhancedSecurity();
     duration = 0;
     wakable = NULL;
     

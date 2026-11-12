@@ -7,6 +7,12 @@ The changelog for SRS.
 <a name="v6-changes"></a>
 
 ## SRS 6.0 Changelog
+* <strong>v6.0, 2026-10-30, [6.0 release3(6.0.195)](https://github.com/ossrs/srs/releases/tag/v6.0-r3) released. 172562 lines.</strong>
+* v6.0, 2026-10-30, Backport [#4794](https://github.com/ossrs/srs/pull/4794): Security: Fix bugs found by security reports. v6.0.195
+* v6.0, 2026-10-29, RTC: Fix crash and heap overflow from a malformed RTCP packet. v6.0.194
+* <strong>v6.0, 2026-09-24, [6.0 release2(6.0.193)](https://github.com/ossrs/srs/releases/tag/v6.0-r2) released. 171424 lines.</strong>
+* v6.0, 2026-09-24, Config: Add SRS_RTMP_LISTEN for the RTMP listen, and keep SRS_LISTEN as an alias. v6.0.193
+* v6.0, 2026-08-20, Backport [#4729](https://github.com/ossrs/srs/pull/4729): SRT: Upgrade libsrt from 1.5.3 to 1.5.6 for CVE-2026-55868/55869. v6.0.192
 * v6.0, 2026-08-12, Backport [#4712](https://github.com/ossrs/srs/pull/4712): Codex: Do not count graceful disconnects as client errors. v6.0.191
 * v6.0, 2026-08-12, Merge [#4706](https://github.com/ossrs/srs/pull/4706): RTC2RTMP: Deduplicate AVC sequence headers. v6.0.190 (#4706)
 * v6.0, 2026-08-12, Merge [#4704](https://github.com/ossrs/srs/pull/4704): Codex: Fix MP4 DVR timing for repeated DTS samples. v6.0.189 (#4704)
