@@ -6578,3 +6578,218 @@ VOID TEST(KernelUtilityTest, Base64Decode)
         EXPECT_STRNE("admin:admin", plaintext.c_str());
     }
 }
+
+// A rejected sequence header with lengthSizeMinusOne 2 must leave no invalid state, so a following frame returns an
+// error instead of aborting the process in do_avc_demux_ibmf_format. Backported from upstream #4741.
+VOID TEST(KernelCodecTest, VideoFormatSpsInvalidLengthSizeMinusOne)
+{
+    srs_error_t err;
+
+    SrsFormat f;
+    HELPER_EXPECT_SUCCESS(f.initialize());
+
+    uint8_t sh[] = {
+        0x17,             // 1, Keyframe; 7, AVC.
+        0x00,             // 0, Sequence header.
+        0x00, 0x00, 0x00, // Timestamp.
+        0x00, 0x00, 0x00, 0x00,
+        0x02,             // lengthSizeMinusOne
+        0x00,
+    };
+    HELPER_EXPECT_FAILED(f.on_video(0, (char*)sh, sizeof(sh)));
+
+    ASSERT_TRUE(f.vcodec != NULL);
+    EXPECT_EQ(0, f.vcodec->NAL_unit_length);
+
+    uint8_t frame[] = {
+        0x27,             // 2, Inter frame; 7, AVC.
+        0x01,             // 1, NALU.
+        0x00, 0x00, 0x00, // Composition time.
+        0xff, 0x65,       // NALU, not in AnnexB format.
+    };
+    HELPER_EXPECT_FAILED(f.on_video(0, (char*)frame, sizeof(frame)));
+}
+
+// A stream publishing with a valid lengthSizeMinusOne keeps it when a malformed sequence header arrives.
+VOID TEST(KernelCodecTest, VideoFormatSpsInvalidLengthSizeMinusOneAfterValid)
+{
+    srs_error_t err;
+
+    SrsFormat f;
+    HELPER_EXPECT_SUCCESS(f.initialize());
+
+    uint8_t sh[] = {
+        0x17,             // 1, Keyframe; 7, AVC.
+        0x00,             // 0, Sequence header.
+        0x00, 0x00, 0x00, // Timestamp.
+        0x00, 0x00, 0x00, 0x00,
+        0x03,             // lengthSizeMinusOne, a 4 bytes length.
+        0x01, 0x00, 0x00, // 1 SPS, empty.
+        0x01, 0x00, 0x00, // 1 PPS, empty.
+    };
+    HELPER_EXPECT_SUCCESS(f.on_video(0, (char*)sh, sizeof(sh)));
+    ASSERT_TRUE(f.vcodec != NULL);
+    EXPECT_EQ(3, f.vcodec->NAL_unit_length);
+
+    uint8_t bad_sh[] = {
+        0x17, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x02,             // lengthSizeMinusOne
+        0x00,
+    };
+    HELPER_EXPECT_FAILED(f.on_video(0, (char*)bad_sh, sizeof(bad_sh)));
+    EXPECT_EQ(3, f.vcodec->NAL_unit_length);
+
+    uint8_t frame[] = {
+        0x27, 0x01, 0x00, 0x00, 0x00,
+        0xff, 0x65,
+    };
+    HELPER_EXPECT_FAILED(f.on_video(0, (char*)frame, sizeof(frame)));
+}
+
+// The HEVC hvcC path writes the same field, so a rejected one must not reach the assert either.
+VOID TEST(KernelCodecTest, VideoFormatHevcInvalidLengthSizeMinusOne)
+{
+    srs_error_t err;
+
+    SrsFormat f;
+    HELPER_EXPECT_SUCCESS(f.initialize());
+
+    uint8_t sh[] = {
+        0x1c,                               // 1, Keyframe; 12, HEVC.
+        0x00,                               // 0, Sequence header.
+        0x00, 0x00, 0x00,                   // Timestamp.
+        0x01,                               // configuration_version.
+        0x00,                               // profile_space, tier_flag, profile_idc.
+        0x00, 0x00, 0x00, 0x00,             // general_profile_compatibility_flags.
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // general_constraint_indicator_flags.
+        0x00,                               // general_level_idc.
+        0x00, 0x00,                         // min_spatial_segmentation_idc.
+        0x00,                               // parallelism_type.
+        0x00,                               // chroma_format.
+        0x00,                               // bit_depth_luma_minus8.
+        0x00,                               // bit_depth_chroma_minus8.
+        0x00, 0x00,                         // avg_frame_rate.
+        0x02,                               // ..., length_size_minus_one
+        0x00,                               // numOfArrays.
+    };
+    HELPER_EXPECT_FAILED(f.on_video(0, (char*)sh, sizeof(sh)));
+
+    ASSERT_TRUE(f.vcodec != NULL);
+    EXPECT_EQ(0, f.vcodec->NAL_unit_length);
+
+    uint8_t frame[] = {
+        0x2c,             // 2, Inter frame; 12, HEVC.
+        0x01,             // 1, NALU.
+        0x00, 0x00, 0x00, // Composition time.
+        0xff, 0x65,       // NALU.
+    };
+    HELPER_EXPECT_FAILED(f.on_video(0, (char*)frame, sizeof(frame)));
+}
+
+// Builds a bitstream most-significant-bit first, to feed the HEVC parameter-set parser.
+class MockHevcPtlBitWriter
+{
+public:
+    std::vector<uint8_t> bits;
+    // Append the low n bits of v, MSB first; n at most 32.
+    void u(uint32_t v, int n) {
+        for (int i = n - 1; i >= 0; i--) {
+            bits.push_back((v >> i) & 1);
+        }
+    }
+    // The bits, zero padded to a byte boundary.
+    std::vector<char> bytes() const {
+        std::vector<char> out((bits.size() + 7) / 8, 0);
+        for (size_t i = 0; i < bits.size(); i++) {
+            if (bits[i]) out[i / 8] |= (char)(1 << (7 - (i % 8)));
+        }
+        return out;
+    }
+};
+
+// The sub-layer reserved_zero_7bits, 33bits and 35bits vectors are written by sub-layer index, so they must be
+// resized with the other sub-layer fields, or the write overflows the heap buffer. Backported from upstream v7.0.206.
+VOID TEST(KernelCodecTest, HevcPtlSubLayersReservedZeroBits)
+{
+    srs_error_t err;
+
+    // profile_tier_level(0, 2): sub-layer 0 is the high throughput profile 5, with reserved_zero_33bits,
+    // and sub-layer 1 is Main 10 profile 2, with reserved_zero_7bits and reserved_zero_35bits.
+    MockHevcPtlBitWriter b;
+    b.u(90, 8);  // general_level_idc
+    b.u(2, 2);   // sub-layer 0: profile present
+    b.u(3, 2);   // sub-layer 1: profile and level present
+    b.u(0, 12);  // reserved_zero_2bits for i from 2 to 7
+
+    b.u(0, 2);
+    b.u(0, 1);
+    b.u(5, 5);   // sub_layer_profile_idc
+    b.u(0, 32);
+    b.u(0, 4);
+    b.u(0, 9);
+    b.u(1, 1);   // max_14bit_constraint_flag
+    b.u(1, 1);
+    b.u(0xcafebabe, 32); // reserved_zero_33bits
+    b.u(1, 1);   // sub_layer_inbld_flag
+
+    b.u(0, 2);
+    b.u(0, 1);
+    b.u(2, 5);   // sub_layer_profile_idc
+    b.u(0, 32);
+    b.u(0, 4);
+    b.u(0x55, 7); // reserved_zero_7bits
+    b.u(1, 1);    // one_picture_only_constraint_flag
+    b.u(5, 3);
+    b.u(0x01020304, 32); // reserved_zero_35bits
+    b.u(1, 1);    // sub_layer_inbld_flag
+    b.u(120, 8);  // sub_layer_level_idc
+
+    std::vector<char> data = b.bytes();
+    SrsBuffer stream(&data[0], (int)data.size());
+    SrsBitBuffer bs(&stream);
+    SrsHevcProfileTierLevel ptl;
+    SrsFormat format;
+    HELPER_EXPECT_SUCCESS(format.hevc_demux_rbsp_ptl(&bs, &ptl, 0, 2));
+
+    ASSERT_EQ(2u, ptl.sub_layer_reserved_zero_33bits.size());
+    EXPECT_EQ(5, ptl.sub_layer_profile_idc[0]);
+    EXPECT_EQ(((uint64_t)1 << 32) | 0xcafebabe, ptl.sub_layer_reserved_zero_33bits[0]);
+    EXPECT_EQ(1, ptl.sub_layer_inbld_flag[0]);
+
+    EXPECT_EQ(2, ptl.sub_layer_profile_idc[1]);
+    EXPECT_EQ(0x55, ptl.sub_layer_reserved_zero_7bits[1]);
+    EXPECT_EQ(1, ptl.sub_layer_one_picture_only_constraint_flag[1]);
+    EXPECT_EQ(((uint64_t)5 << 32) | 0x01020304, ptl.sub_layer_reserved_zero_35bits[1]);
+    EXPECT_EQ(1, ptl.sub_layer_inbld_flag[1]);
+    EXPECT_EQ(120, ptl.sub_layer_level_idc[1]);
+    EXPECT_EQ(0, stream.left());
+}
+
+// A VPS, SPS or PPS of 1 byte holds only half of the 2 bytes NAL unit header, so it must be refused instead of
+// aborting the process in SrsBuffer::skip.
+VOID TEST(KernelCodecTest, HevcParameterSetOneByteNalu)
+{
+    srs_error_t err;
+
+    SrsFormat f;
+    HELPER_EXPECT_SUCCESS(f.initialize());
+
+    if (true) {
+        char data[] = {(char)(SrsHevcNaluType_VPS << 1)};
+        SrsBuffer stream(data, sizeof(data));
+        HELPER_EXPECT_FAILED(f.hevc_demux_vps(&stream));
+    }
+
+    if (true) {
+        char data[] = {(char)(SrsHevcNaluType_SPS << 1)};
+        SrsBuffer stream(data, sizeof(data));
+        HELPER_EXPECT_FAILED(f.hevc_demux_sps(&stream));
+    }
+
+    if (true) {
+        char data[] = {(char)(SrsHevcNaluType_PPS << 1)};
+        SrsBuffer stream(data, sizeof(data));
+        HELPER_EXPECT_FAILED(f.hevc_demux_pps(&stream));
+    }
+}
