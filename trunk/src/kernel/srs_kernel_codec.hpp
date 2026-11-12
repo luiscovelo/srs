@@ -923,6 +923,8 @@ struct SrsHevcRbspPps
 
 struct SrsHevcDecoderConfigurationRecord
 {
+    SrsHevcDecoderConfigurationRecord();
+
     uint8_t configuration_version;
     uint8_t general_profile_space;
     uint8_t general_tier_flag;

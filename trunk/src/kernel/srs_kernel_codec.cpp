@@ -555,6 +555,31 @@ bool SrsAudioCodecConfig::is_aac_codec_ok()
     return !aac_extra_data.empty();
 }
 
+#ifdef SRS_H265
+// The fields the VPS and SPS do not set go into the hvcC, so they start at zero. A slice may name a PPS, and a PPS
+// an SPS, that was never received: it reads as zero, not as the memory before. Backported from upstream v7.0.213.
+SrsHevcDecoderConfigurationRecord::SrsHevcDecoderConfigurationRecord() : vps_table(), sps_table(), pps_table()
+{
+    configuration_version = 0;
+    general_profile_space = 0;
+    general_tier_flag = 0;
+    general_profile_idc = 0;
+    general_profile_compatibility_flags = 0;
+    general_constraint_indicator_flags = 0;
+    general_level_idc = 0;
+    min_spatial_segmentation_idc = 0;
+    parallelism_type = 0;
+    chroma_format = 0;
+    bit_depth_luma_minus8 = 0;
+    bit_depth_chroma_minus8 = 0;
+    avg_frame_rate = 0;
+    constant_frame_rate = 0;
+    num_temporal_layers = 0;
+    temporal_id_nested = 0;
+    length_size_minus_one = 0;
+}
+#endif
+
 SrsVideoCodecConfig::SrsVideoCodecConfig()
 {
     id = SrsVideoCodecIdForbidden;
@@ -1487,6 +1512,9 @@ srs_error_t SrsFormat::hevc_demux_sps_rbsp(char* rbsp, int nb_rbsp)
         return srs_error_wrap(err, "chroma_format_idc");
     }
 
+    // Inferred to be 0 when not present, and the SPS table entry may hold a previous SPS. Backported from upstream
+    // v7.0.207.
+    sps->separate_colour_plane_flag = 0;
     if (sps->chroma_format_idc == 3) {
         if (!bs.require_bits(1)) {
             return srs_error_new(ERROR_HEVC_DECODE_ERROR, "separate_colour_plane_flag requires 1 only %d bits", bs.left_bits());
@@ -2373,9 +2401,28 @@ srs_error_t SrsFormat::avc_demux_sps_rbsp(char* rbsp, int nb_rbsp)
         if (seq_scaling_matrix_present_flag) {
             int nb_scmpfs = ((chroma_format_idc != 3)? 8:12);
             for (int i = 0; i < nb_scmpfs; i++) {
-                int8_t seq_scaling_matrix_present_flag_i = -1;
-                if ((err = srs_avc_nalu_read_bit(&bs, seq_scaling_matrix_present_flag_i)) != srs_success) {
-                    return srs_error_wrap(err, "read seq_scaling_matrix_present_flag_i");;
+                int8_t seq_scaling_list_present_flag_i = -1;
+                if ((err = srs_avc_nalu_read_bit(&bs, seq_scaling_list_present_flag_i)) != srs_success) {
+                    return srs_error_wrap(err, "read seq_scaling_list_present_flag_i");
+                }
+                if (!seq_scaling_list_present_flag_i) {
+                    continue;
+                }
+
+                // Skip the scaling_list(), or the picture size after it is read from the wrong position.
+                // 7.3.2.1.1.1 Scaling list syntax, ISO_IEC_14496-10-AVC-2012.pdf, page 63.
+                // Backported from upstream #4757.
+                int size_of_scaling_list = (i < 6) ? 16 : 64;
+                int32_t last_scale = 8, next_scale = 8;
+                for (int j = 0; j < size_of_scaling_list && next_scale != 0; j++) {
+                    // delta_scale is se(v), codeNum k maps to (-1)^(k+1) * Ceil(k / 2), see Table 9-3.
+                    int32_t code_num = 0;
+                    if ((err = srs_avc_nalu_read_uev(&bs, code_num)) != srs_success) {
+                        return srs_error_wrap(err, "read delta_scale of scaling_list %d", i);
+                    }
+                    int32_t delta_scale = (code_num & 0x01) ? (code_num + 1) / 2 : -(code_num / 2);
+                    next_scale = (last_scale + delta_scale + 256) % 256;
+                    last_scale = (next_scale == 0) ? last_scale : next_scale;
                 }
             }
         }

@@ -2488,6 +2488,9 @@ srs_error_t SrsLiveSource::on_video_imp(SrsSharedPtrMessage* msg)
     // @see https://github.com/ossrs/srs/issues/474
     if (is_sequence_header) {
         format_->avc_parse_sps = _srs_config->get_parse_sps(req->vhost);
+        // The metadata cache parses the sequence header again, so it must follow parse_sps too, or the workaround
+        // never works. Backported from upstream v7.0.210.
+        meta->vsh_format()->avc_parse_sps = format_->avc_parse_sps;
     }
 
     if ((err = format_->on_video(msg)) != srs_success) {

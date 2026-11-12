@@ -5,6 +5,8 @@
 //
 #include <srs_utest_kernel.hpp>
 
+#include <new>
+
 using namespace std;
 
 #include <srs_kernel_error.hpp>
@@ -6793,3 +6795,51 @@ VOID TEST(KernelCodecTest, HevcParameterSetOneByteNalu)
         HELPER_EXPECT_FAILED(f.hevc_demux_pps(&stream));
     }
 }
+
+// The SPS of a real 1280x720 High profile camera with seq_scaling_matrix_present_flag and all eight scaling lists
+// present. The picture size comes after the lists, so the parser must read through them. Backported from
+// upstream #4757.
+VOID TEST(KernelCodecTest, AvcSpsWithScalingListsIs1280x720)
+{
+    srs_error_t err;
+
+    static const uint8_t sps[] = {
+        0x67, 0x64, 0x00, 0x1f, 0xad, 0x84, 0x05, 0x45, 0x62, 0xb8, 0xac, 0x54,
+        0x74, 0x20, 0x2a, 0x2b, 0x15, 0xc5, 0x62, 0xa3, 0xa1, 0x01, 0x51, 0x58,
+        0xae, 0x2b, 0x15, 0x1d, 0x08, 0x0a, 0x8a, 0xc5, 0x71, 0x58, 0xa8, 0xe8,
+        0x40, 0x54, 0x56, 0x2b, 0x8a, 0xc5, 0x47, 0x42, 0x02, 0xa2, 0xb1, 0x5c,
+        0x56, 0x2a, 0x3a, 0x10, 0x24, 0x99, 0x39, 0x3c, 0x9f, 0x27, 0xe4, 0xfe,
+        0x4f, 0xc9, 0xf2, 0x79, 0xb9, 0xb3, 0x4d, 0x08, 0x12, 0x4c, 0x9c, 0x9e,
+        0x4f, 0x93, 0xf2, 0x7f, 0x27, 0xe4, 0xf9, 0x3c, 0xdc, 0xd9, 0xa6, 0x4d,
+        0x00, 0xa0, 0x0b, 0x74, 0xdc, 0x04, 0x04, 0x04, 0x08};
+
+    SrsFormat format;
+    HELPER_EXPECT_SUCCESS(format.initialize());
+    format.vcodec->sequenceParameterSetNALUnit.assign((char*)sps, (char*)sps + sizeof(sps));
+
+    HELPER_EXPECT_SUCCESS(format.avc_demux_sps());
+    EXPECT_EQ(1280, format.vcodec->width);
+    EXPECT_EQ(720, format.vcodec->height);
+}
+
+#ifdef SRS_H265
+// The HEVC decoder configuration record starts at zero, so a table entry never holds indeterminate memory, such as
+// a separate_colour_plane_flag that would report a height of 1084 for 1080. Backported from upstream v7.0.213.
+VOID TEST(KernelCodecTest, HevcDecoderConfigurationRecordStartsAtZero)
+{
+    // Default-initialized over dirty memory, as the member of SrsVideoCodecConfig is.
+    char* buf = new char[sizeof(SrsHevcDecoderConfigurationRecord)];
+    memset(buf, 0xff, sizeof(SrsHevcDecoderConfigurationRecord));
+    SrsHevcDecoderConfigurationRecord* r = new (buf) SrsHevcDecoderConfigurationRecord;
+
+    EXPECT_EQ(0, r->length_size_minus_one);
+    EXPECT_EQ(0, r->avg_frame_rate);
+    for (int i = 0; i < SrsHevcMax_SPS_COUNT; i++) {
+        EXPECT_EQ(0, r->sps_table[i].separate_colour_plane_flag);
+        EXPECT_EQ(0, r->sps_table[i].chroma_format_idc);
+    }
+
+    r->~SrsHevcDecoderConfigurationRecord();
+    delete[] buf;
+}
+#endif
