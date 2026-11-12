@@ -6,6 +6,10 @@
 #include <srs_utest_app.hpp>
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <sys/time.h>
+#include <time.h>
+#include <st.h>
 
 using namespace std;
 
@@ -942,6 +946,26 @@ VOID TEST(AppCoroutineTest, LockerWhenInterrupted)
     EXPECT_EQ(0, srs_mutex_unlock(lock));
 
     srs_mutex_destroy(lock);
+}
+
+// The State Threads clock is monotonic, so a wall clock step, such as by NTP, never fires the timeouts early nor
+// stalls the timers. Backported from upstream v7.0.17.
+VOID TEST(AppCoroutineTest, StClockIsMonotonic)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    int64_t mono = ts.tv_sec * 1000000LL + ts.tv_nsec / 1000;
+
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    int64_t wall = tv.tv_sec * 1000000LL + tv.tv_usec;
+
+    int64_t now = (int64_t)st_utime();
+
+    // Follows the monotonic clock, within a second.
+    EXPECT_LT(llabs(now - mono), 1000000LL);
+    // Not the wall clock, which counts from the epoch, years more than the uptime.
+    EXPECT_GT(llabs(now - wall), 365LL * 24 * 3600 * 1000000LL);
 }
 
 VOID TEST(AppCoroutineTest, Cycle)
