@@ -268,6 +268,66 @@ VOID TEST(StatisticTest, GracefulDisconnectsDoNotIncrementErrors)
     EXPECT_EQ(1, nerrs);
 }
 
+// A publisher that republishes on the same connection counts once, so its disconnect frees the stream, and no stale
+// stream stays in /api/v1/streams. Backported from upstream v8.0.61.
+VOID TEST(StatisticTest, RepublishCountsClientOnce)
+{
+    srs_error_t err = srs_success;
+
+    SrsStatistic stat;
+    MockStatisticExpire conn;
+    SrsRequest req;
+    req.vhost = "test.vhost";
+    req.app = "live";
+    req.stream = "cam1";
+
+    HELPER_EXPECT_SUCCESS(stat.on_client("c0", &req, &conn, SrsRtmpConnFMLEPublish));
+    HELPER_EXPECT_SUCCESS(stat.on_client("c0", &req, &conn, SrsRtmpConnFMLEPublish));
+
+    SrsStatisticStream* stream = stat.find_stream_by_url(req.get_stream_url());
+    ASSERT_TRUE(stream != NULL);
+    EXPECT_EQ(1, stream->nb_clients);
+    EXPECT_EQ(1, stream->vhost->nb_clients);
+
+    stat.on_disconnect("c0", srs_success);
+    EXPECT_TRUE(stat.find_stream_by_url(req.get_stream_url()) == NULL);
+
+    int64_t send_bytes = 0, recv_bytes = 0, nstreams = 0, nclients = 0, total_nclients = 0, nerrs = 0;
+    HELPER_EXPECT_SUCCESS(stat.dumps_metrics(send_bytes, recv_bytes, nstreams, nclients, total_nclients, nerrs));
+    EXPECT_EQ(0, nclients);
+    EXPECT_EQ(1, total_nclients);
+}
+
+// A publisher that republishes another stream on the same connection moves to it, so the old stream is freed and
+// the disconnect leaves the new one.
+VOID TEST(StatisticTest, RepublishAnotherStreamMovesClient)
+{
+    srs_error_t err = srs_success;
+
+    SrsStatistic stat;
+    MockStatisticExpire conn;
+    SrsRequest r1;
+    r1.vhost = "test.vhost";
+    r1.app = "live";
+    r1.stream = "cam1";
+    SrsRequest r2;
+    r2.vhost = "test.vhost";
+    r2.app = "live";
+    r2.stream = "cam2";
+
+    HELPER_EXPECT_SUCCESS(stat.on_client("c0", &r1, &conn, SrsRtmpConnFMLEPublish));
+    HELPER_EXPECT_SUCCESS(stat.on_client("c0", &r2, &conn, SrsRtmpConnFMLEPublish));
+
+    EXPECT_TRUE(stat.find_stream_by_url(r1.get_stream_url()) == NULL);
+    SrsStatisticStream* s2 = stat.find_stream_by_url(r2.get_stream_url());
+    ASSERT_TRUE(s2 != NULL);
+    EXPECT_EQ(1, s2->nb_clients);
+    EXPECT_EQ(1, s2->vhost->nb_clients);
+
+    stat.on_disconnect("c0", srs_success);
+    EXPECT_TRUE(stat.find_stream_by_url(r2.get_stream_url()) == NULL);
+}
+
 VOID TEST(StatisticTest, RtmpPublishersByTransport)
 {
     SrsStatistic stat;

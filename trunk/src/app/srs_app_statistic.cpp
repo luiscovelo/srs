@@ -436,22 +436,36 @@ srs_error_t SrsStatistic::on_client(std::string id, SrsRequest* req, ISrsExpire*
         client->id = id;
         client->stream = stream;
         clients[id] = client;
+
+        stream->nb_clients++;
+        vhost->nb_clients++;
+        nb_clients_++;
     } else {
         client = clients[id];
+        // A client added again counts once, such as an RTMP publisher that republishes on the same connection. A
+        // client added to another stream moves to it, so its disconnect leaves the stream it is on. Backported from
+        // upstream v8.0.61.
+        SrsStatisticStream* old = client->stream;
+        if (old != stream) {
+            old->nb_clients--;
+            old->vhost->nb_clients--;
+
+            client->stream = stream;
+            stream->nb_clients++;
+            vhost->nb_clients++;
+
+            cleanup_stream(old);
+        }
     }
     
     // got client.
     client->conn = conn;
     client->type = type;
-    stream->nb_clients++;
-    vhost->nb_clients++;
 
     // The req might be freed, in such as SrsLiveStream::update, so we must copy it.
     // @see https://github.com/ossrs/srs/issues/2311
     srs_freep(client->req);
     client->req = req->copy();
-
-    nb_clients_++;
     
     return err;
 }
