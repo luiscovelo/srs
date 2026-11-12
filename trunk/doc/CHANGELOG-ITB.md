@@ -5,6 +5,12 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.20, 2026-11-12, DVR: When the DVR is active for the stream, that is the vhost DVR is enabled and `dvr_apply` matches it, end the RTMP publish when the DVR fails to record, at the first file or mid-session such as on a full disk or a failed segment open, so the camera never stays connected without recording. With the DVR disabled or not applied, a DVR error is still ignored. Based on upstream v6.0.195.
+* v6.0-itb.20, 2026-11-12, Hooks: Close the cycle of a DVR failure with `on_dvr` for the file already recorded and `on_unpublish` with `unpublish_reason` `dvr_error` and `unpublish_code` 3190 (`DvrFailed`), also when the first file fails after `on_publish` was accepted. Based on upstream v6.0.195.
+* v6.0-itb.20, 2026-11-12, RTMP: Release the publish state when the publish fails after the source was marked as published, so the stream no longer answers busy until restart, backported from upstream [#4703](https://github.com/ossrs/srs/pull/4703). Based on upstream v6.0.195.
+* v6.0-itb.20, 2026-11-12, DVR: Close and remove a file whose header can't be written, so it is never renamed nor reported to `on_dvr`, backported from upstream v7.0.211. Based on upstream v6.0.195.
+* v6.0-itb.20, 2026-11-12, Tests: Add unit coverage for the active DVR check, the DVR error handling with the DVR active, inactive and disabled, and the removal of a file whose header failed. Based on upstream v6.0.195.
+* v6.0-itb.20, 2026-11-12, Fork: Bump the fork display version to `6.0.195-itb.20`. Based on upstream v6.0.195.
 * v6.0-itb.19, 2026-11-12, Upstream: Sync the fork base from SRS v6.0.191 to the v6.0-r3 release at v6.0.195. Based on upstream v6.0.195.
 * v6.0-itb.19, 2026-11-12, Security: Limit AMF0 object and array nesting to 64 levels, so a deeply nested RTMP or RTMPS `connect` or metadata can no longer overflow the coroutine stack and crash the server before any check. Based on upstream v6.0.195.
 * v6.0-itb.19, 2026-11-12, Security: Limit JSON nesting to 64 levels, so a deeply nested hook response or `/rtc/v1/*` request body, which the HTTP API auth does not cover, can no longer crash the server. Based on upstream v6.0.195.
