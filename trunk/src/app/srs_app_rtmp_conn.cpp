@@ -79,6 +79,8 @@ static string srs_rtmp_unpublish_reason(srs_error_t err, bool kickoff_by_api)
             return "client_unpublish";
         case ERROR_THREAD_INTERRUPED:
             return "interrupted";
+        case ERROR_DVR_FAILED:
+            return "dvr_error";
         default:
             return "publish_error";
     }
@@ -1119,11 +1121,19 @@ srs_error_t SrsRtmpConn::publishing(SrsSharedPtr<SrsLiveSource> source)
         rtrd.stop();
     }
     
-    // Release and callback when acquire publishing success, if not, we should ignore, because the source
-    // is not published by this session.
-    if (acquire_err == srs_success) {
+    // Whatever the acquire result, release any publish state changed by this session, for example when the DVR fails
+    // to open its first file after the source was marked as published. When the stream is busy, another session owns
+    // it and must never be released here.
+    if (srs_error_code(acquire_err) != ERROR_SYSTEM_STREAM_BUSY) {
         release_publish(source);
+    }
+
+    // Callback when this session published the stream. When the acquire fails because the DVR, active for the stream,
+    // can't record it, on_publish was already accepted, so close the cycle with on_unpublish too.
+    if (acquire_err == srs_success) {
         stat->on_rtmp_publish_stop(transport_->is_tls());
+        http_hooks_on_unpublish(err);
+    } else if (srs_error_code(acquire_err) == ERROR_DVR_FAILED) {
         http_hooks_on_unpublish(err);
     }
     

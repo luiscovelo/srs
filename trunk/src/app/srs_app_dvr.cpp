@@ -98,16 +98,25 @@ srs_error_t SrsDvrSegmenter::open()
         return srs_error_wrap(err, "open file %s", path.c_str());
     }
     
-    // Set libc file write cache buffer size
+    // Set libc file write cache buffer size, then initialize the encoder, which writes the file header.
     if ((err = fs->set_iobuf_size(SRS_FWRITE_CACHE_SIZE)) != srs_success) {
-        return srs_error_wrap(err, "set iobuf size for file %s", path.c_str());
+        err = srs_error_wrap(err, "set iobuf size for file %s", path.c_str());
+    } else if ((err = open_encoder()) != srs_success) {
+        err = srs_error_wrap(err, "open encoder");
     }
 
-    // initialize the encoder.
-    if ((err = open_encoder()) != srs_success) {
-        return srs_error_wrap(err, "open encoder");
+    // A file whose header can't be written, such as on a full disk, holds no recording. Close and remove it, so it is
+    // never named nor reported to on_dvr by a later close.
+    if (err != srs_success) {
+        fs->close();
+        srs_error_t r0 = fragment->unlink_tmpfile();
+        if (r0 != srs_success) {
+            srs_warn("dvr unlink tmp file failed %s", srs_error_desc(r0).c_str());
+            srs_freep(r0);
+        }
+        return err;
     }
-    
+
     srs_trace("dvr stream %s to file %s", req->stream.c_str(), path.c_str());
     return err;
 }
@@ -1046,6 +1055,29 @@ srs_error_t SrsDvr::on_video(SrsSharedPtrMessage* shared_video, SrsFormat* forma
     if (!actived) {
         return srs_success;
     }
-    
+
     return plan->on_video(shared_video, format);
+}
+
+bool SrsDvr::is_active()
+{
+    return actived && req && _srs_config->get_dvr_enabled(req->vhost);
+}
+
+srs_error_t srs_dvr_on_error(SrsDvr* dvr, srs_error_t err, const char* what)
+{
+    if (err == srs_success) {
+        return err;
+    }
+
+    if (dvr->is_active()) {
+        srs_error_t r0 = srs_error_new(ERROR_DVR_FAILED, "dvr %s, %s", what, srs_error_summary(err).c_str());
+        srs_freep(err);
+        return r0;
+    }
+
+    srs_warn("dvr: ignore %s error %s", what, srs_error_desc(err).c_str());
+    srs_freep(err);
+    dvr->on_unpublish();
+    return srs_success;
 }

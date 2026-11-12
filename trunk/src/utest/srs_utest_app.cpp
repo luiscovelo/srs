@@ -597,6 +597,124 @@ VOID TEST(AppDvrTest, DiscardFileAtOrBelowConfiguredMinimum)
     ::unlink(path.c_str());
 }
 
+class MockSrsDvrOpenFailSegmenter : public MockSrsDvrFileSizeSegmenter
+{
+protected:
+    virtual srs_error_t open_encoder() {
+        return srs_error_new(ERROR_SYSTEM_FILE_WRITE, "mock header write failed");
+    }
+};
+
+VOID TEST(AppDvrTest, OpenFailureRemovesTmpFile)
+{
+    srs_error_t err = srs_success;
+    string path = _srs_tmp_file_prefix + "dvr-open-fail-stream.flv";
+    string tmp_path = path + ".tmp";
+    ::unlink(path.c_str());
+    ::unlink(tmp_path.c_str());
+
+    MockSrsDvrFileSizeConfig config;
+    HELPER_ASSERT_SUCCESS(config.config.parse(_MIN_OK_CONF "vhost vhost{dvr{dvr_path " + _srs_tmp_file_prefix + "dvr-open-fail-[stream].flv;}}"));
+
+    SrsRequest req;
+    req.vhost = "vhost";
+    req.app = "live";
+    req.stream = "stream";
+
+    MockSrsDvrFileSizePlan plan;
+    MockSrsDvrOpenFailSegmenter segmenter;
+    segmenter.req = &req;
+    segmenter.plan = &plan;
+
+    // The header of the file can't be written, so the file is closed and removed.
+    HELPER_EXPECT_FAILED(segmenter.open());
+    EXPECT_FALSE(segmenter.fs->is_open());
+    EXPECT_FALSE(srs_path_exists(tmp_path));
+
+    // A later close never names nor reports the file.
+    HELPER_EXPECT_SUCCESS(segmenter.close());
+    EXPECT_FALSE(srs_path_exists(path));
+    EXPECT_EQ(0, plan.nb_reaped);
+}
+
+VOID TEST(AppDvrTest, ActiveOnlyWhenEnabledAndApplied)
+{
+    srs_error_t err = srs_success;
+
+    MockSrsDvrFileSizeConfig config;
+    SrsDvr dvr;
+    dvr.req = new SrsRequest();
+    dvr.req->vhost = "v";
+
+    // DVR applies to the stream, but the vhost DVR is disabled.
+    HELPER_ASSERT_SUCCESS(config.config.parse(_MIN_OK_CONF "vhost v{dvr{enabled off;}}"));
+    dvr.actived = true;
+    EXPECT_FALSE(dvr.is_active());
+
+    // The vhost DVR is enabled, but dvr_apply does not match the stream.
+    HELPER_ASSERT_SUCCESS(config.config.parse(_MIN_OK_CONF "vhost v{dvr{enabled on;}}"));
+    dvr.actived = false;
+    EXPECT_FALSE(dvr.is_active());
+
+    // Enabled and applied.
+    dvr.actived = true;
+    EXPECT_TRUE(dvr.is_active());
+}
+
+class MockSrsDvrErrorPlan : public SrsDvrPlan
+{
+public:
+    int nb_unpublish;
+public:
+    MockSrsDvrErrorPlan() {
+        nb_unpublish = 0;
+    }
+public:
+    virtual void on_unpublish() {
+        nb_unpublish++;
+    }
+};
+
+VOID TEST(AppDvrTest, ErrorEndsPublishOnlyWhenActive)
+{
+    srs_error_t err = srs_success;
+
+    MockSrsDvrFileSizeConfig config;
+    HELPER_ASSERT_SUCCESS(config.config.parse(_MIN_OK_CONF "vhost v{dvr{enabled on;}}"));
+
+    SrsDvr dvr;
+    dvr.req = new SrsRequest();
+    dvr.req->vhost = "v";
+    MockSrsDvrErrorPlan* plan = new MockSrsDvrErrorPlan();
+    dvr.plan = plan;
+
+    // No error, nothing to do.
+    dvr.actived = true;
+    HELPER_EXPECT_SUCCESS(srs_dvr_on_error(&dvr, srs_success, "video"));
+    EXPECT_EQ(0, plan->nb_unpublish);
+
+    // The DVR records the stream, so the failure ends the publish as a DVR error, keeping the cause.
+    if (true) {
+        srs_error_t r0 = srs_dvr_on_error(&dvr, srs_error_new(ERROR_SYSTEM_FILE_WRITE, "disk full"), "video");
+        EXPECT_EQ(ERROR_DVR_FAILED, srs_error_code(r0));
+        EXPECT_TRUE(srs_error_summary(r0).find("dvr video") != string::npos);
+        EXPECT_TRUE(srs_error_summary(r0).find("disk full") != string::npos);
+        srs_freep(r0);
+        EXPECT_EQ(0, plan->nb_unpublish);
+    }
+
+    // The DVR does not record the stream, so the error is ignored and the DVR stops, as before.
+    dvr.actived = false;
+    HELPER_EXPECT_SUCCESS(srs_dvr_on_error(&dvr, srs_error_new(ERROR_SYSTEM_FILE_WRITE, "disk full"), "audio"));
+    EXPECT_EQ(1, plan->nb_unpublish);
+
+    // The vhost DVR is disabled, for example by a reload, so the error never ends the publish.
+    HELPER_ASSERT_SUCCESS(config.config.parse(_MIN_OK_CONF "vhost v{dvr{enabled off;}}"));
+    dvr.actived = true;
+    HELPER_EXPECT_SUCCESS(srs_dvr_on_error(&dvr, srs_error_new(ERROR_SYSTEM_FILE_WRITE, "disk full"), "video"));
+    EXPECT_EQ(2, plan->nb_unpublish);
+}
+
 class MockCoroutineHandler : public ISrsCoroutineHandler {
 public:
     SrsSTCoroutine* trd;

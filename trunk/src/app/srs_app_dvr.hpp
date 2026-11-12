@@ -251,7 +251,15 @@ public:
     // mux the video packets to dvr.
     // @param shared_video, directly ptr, copy it if need to save it.
     virtual srs_error_t on_video(SrsSharedPtrMessage* shared_video, SrsFormat* format);
+    // Whether the DVR records this stream, that is the vhost DVR is enabled and dvr_apply matches the stream.
+    virtual bool is_active();
 };
+
+// Handle an error of the DVR when it consumes a packet or starts the stream. When the DVR is active for the stream,
+// the recording failed, so the error is returned as ERROR_DVR_FAILED to end the publish, and the publisher never
+// stays connected without recording. When the DVR is not active, the error is ignored as before and the DVR stops.
+// @param what The DVR event that failed, such as "video", for the log and error message.
+extern srs_error_t srs_dvr_on_error(SrsDvr* dvr, srs_error_t err, const char* what);
 
 extern SrsAsyncCallWorker* _srs_dvr_async;
 

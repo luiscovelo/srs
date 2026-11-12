@@ -955,6 +955,9 @@ srs_error_t SrsOriginHub::on_meta_data(SrsSharedPtrMessage* shared_metadata, Srs
     }
     
     if ((err = dvr->on_meta_data(shared_metadata)) != srs_success) {
+        if (dvr->is_active()) {
+            err = srs_dvr_on_error(dvr, err, "metadata");
+        }
         return srs_error_wrap(err, "DVR consume metadata");
     }
     
@@ -1019,10 +1022,12 @@ srs_error_t SrsOriginHub::on_audio(SrsSharedPtrMessage* shared_audio)
         dash->on_unpublish();
     }
     
+    // When the DVR records the stream, a recording failure ends the publish, so the publisher never stays connected
+    // without recording; otherwise the error is ignored and the DVR stops.
     if ((err = dvr->on_audio(msg, format)) != srs_success) {
-        srs_warn("dvr: ignore audio error %s", srs_error_desc(err).c_str());
-        srs_error_reset(err);
-        dvr->on_unpublish();
+        if ((err = srs_dvr_on_error(dvr, err, "audio")) != srs_success) {
+            return srs_error_wrap(err, "dvr consume audio");
+        }
     }
     
 #ifdef SRS_HDS
@@ -1112,10 +1117,12 @@ srs_error_t SrsOriginHub::on_video(SrsSharedPtrMessage* shared_video, bool is_se
         dash->on_unpublish();
     }
     
+    // When the DVR records the stream, a recording failure ends the publish, so the publisher never stays connected
+    // without recording; otherwise the error is ignored and the DVR stops.
     if ((err = dvr->on_video(msg, format)) != srs_success) {
-        srs_warn("dvr: ignore video error %s", srs_error_desc(err).c_str());
-        srs_error_reset(err);
-        dvr->on_unpublish();
+        if ((err = srs_dvr_on_error(dvr, err, "video")) != srs_success) {
+            return srs_error_wrap(err, "dvr consume video");
+        }
     }
     
 #ifdef SRS_HDS
@@ -1164,6 +1171,9 @@ srs_error_t SrsOriginHub::on_publish()
     
     // @see https://github.com/ossrs/srs/issues/1613#issuecomment-961657927
     if ((err = dvr->on_publish(req_)) != srs_success) {
+        if (dvr->is_active()) {
+            err = srs_dvr_on_error(dvr, err, "publish");
+        }
         return srs_error_wrap(err, "dvr publish");
     }
     
