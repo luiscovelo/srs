@@ -739,6 +739,10 @@ srs_error_t SrsRtmpConn::stream_service_cycle()
     }
     srs_assert(live_source.get() != NULL);
 
+    // Keep the source in the pool while this client may yield, for example in the on_publish hook, before it
+    // publishes or plays the source, so the cleanup timer never drops it in between.
+    SrsLiveSourcePendingClient pending_client(live_source);
+
     bool enabled_cache = _srs_config->get_gop_cache(req->vhost);
     int gcmf = _srs_config->get_gop_cache_max_frames(req->vhost);
     srs_trace("source url=%s, ip=%s, cache=%d/%d, is_edge=%d, source_id=%s/%s",

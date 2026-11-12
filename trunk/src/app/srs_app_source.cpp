@@ -1919,7 +1919,9 @@ SrsLiveSource::SrsLiveSource()
     mix_queue = new SrsMixQueue();
     
     can_publish_ = true;
-    stream_die_at_ = 0;
+    // A new source is idle from now, not since the epoch, so it gets the cleanup delay before it is dead.
+    stream_die_at_ = srs_get_system_time();
+    nn_pending_clients_ = 0;
     publisher_idle_at_ = 0;
 
     handler = NULL;
@@ -1986,6 +1988,11 @@ srs_error_t SrsLiveSource::cycle()
 
 bool SrsLiveSource::stream_is_dead()
 {
+    // A client fetched the source and will publish or play it.
+    if (nn_pending_clients_ > 0) {
+        return false;
+    }
+
     // still publishing?
     if (!can_publish_ || !publish_edge->can_publish()) {
         return false;
@@ -2008,6 +2015,35 @@ bool SrsLiveSource::stream_is_dead()
     }
     
     return true;
+}
+
+void SrsLiveSource::attach_pending_client()
+{
+    nn_pending_clients_++;
+}
+
+void SrsLiveSource::detach_pending_client()
+{
+    if (nn_pending_clients_ > 0) {
+        nn_pending_clients_--;
+    }
+
+    // When the last pending client leaves an idle source, for example a publish refused by the on_publish hook, the
+    // source becomes idle now, so it gets the whole cleanup delay.
+    if (!nn_pending_clients_ && can_publish_ && consumers.empty()) {
+        stream_die_at_ = srs_get_system_time();
+    }
+}
+
+SrsLiveSourcePendingClient::SrsLiveSourcePendingClient(SrsSharedPtr<SrsLiveSource> source)
+{
+    source_ = source;
+    source_->attach_pending_client();
+}
+
+SrsLiveSourcePendingClient::~SrsLiveSourcePendingClient()
+{
+    source_->detach_pending_client();
 }
 
 bool SrsLiveSource::publisher_is_idle_for(srs_utime_t timeout)

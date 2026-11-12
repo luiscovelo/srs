@@ -1503,3 +1503,64 @@ VOID TEST(AppSecurity, SystemSecurityBeforeVhostSecurity)
     EXPECT_EQ(2, vhost->check_count_);
 }
 
+
+// A new source is idle since it was created, not since the epoch, so the cleanup timer never drops it before its
+// publisher activates it. Backported from upstream v7.0.127.
+VOID TEST(AppLiveSourceTest, NewSourceIsNotDeadAtOnce)
+{
+    SrsLiveSource source;
+    EXPECT_FALSE(source.stream_is_dead());
+
+    // After the cleanup delay with no publisher nor player, the source is dead.
+    source.stream_die_at_ = 0;
+    EXPECT_TRUE(source.stream_is_dead());
+}
+
+// The source is never dead while a client fetched it and may yield before it publishes or plays, for example in
+// the on_publish hook, and it gets the whole cleanup delay when the last pending client leaves.
+VOID TEST(AppLiveSourceTest, PendingClientKeepsSourceAlive)
+{
+    SrsSharedPtr<SrsLiveSource> source(new SrsLiveSource());
+    source->stream_die_at_ = 0;
+    EXPECT_TRUE(source->stream_is_dead());
+
+    if (true) {
+        SrsLiveSourcePendingClient c0(source);
+        EXPECT_FALSE(source->stream_is_dead());
+
+        if (true) {
+            SrsLiveSourcePendingClient c1(source);
+            EXPECT_EQ(2, source->nn_pending_clients_);
+        }
+
+        // One client is still pending.
+        source->stream_die_at_ = 0;
+        EXPECT_FALSE(source->stream_is_dead());
+    }
+
+    // The last pending client left, so the source is idle from now on.
+    EXPECT_EQ(0, source->nn_pending_clients_);
+    EXPECT_FALSE(source->stream_is_dead());
+
+    source->stream_die_at_ = 0;
+    EXPECT_TRUE(source->stream_is_dead());
+
+    // An unbalanced detach never makes the counter negative.
+    source->detach_pending_client();
+    EXPECT_EQ(0, source->nn_pending_clients_);
+}
+
+// A publishing source keeps its die time when a pending client leaves, since it is not idle.
+VOID TEST(AppLiveSourceTest, PendingClientLeavesPublishingSource)
+{
+    SrsSharedPtr<SrsLiveSource> source(new SrsLiveSource());
+    source->stream_die_at_ = 0;
+
+    if (true) {
+        SrsLiveSourcePendingClient c0(source);
+        source->can_publish_ = false;
+    }
+
+    EXPECT_EQ(0, source->stream_die_at_);
+    EXPECT_FALSE(source->stream_is_dead());
+}

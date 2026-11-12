@@ -536,6 +536,9 @@ private:
     bool can_publish_;
     // The last die time, while die means neither publishers nor players.
     srs_utime_t stream_die_at_;
+    // The number of clients that fetched the source but may still yield, for example in the on_publish hook, before
+    // they publish or play it. The source is never dead while any is pending, so cleanup never drops it from the pool.
+    int nn_pending_clients_;
     // The last idle time, while idle means no players.
     srs_utime_t publisher_idle_at_;
 public:
@@ -548,6 +551,10 @@ public:
     virtual bool stream_is_dead();
     // Whether publisher is idle for a period of timeout.
     bool publisher_is_idle_for(srs_utime_t timeout);
+    // A client fetched the source and may yield before it publishes or plays it, see SrsLiveSourcePendingClient.
+    void attach_pending_client();
+    // The pending client published, played or left. When the last leaves an idle source, its cleanup delay starts.
+    void detach_pending_client();
 public:
     // Initialize the hls with handlers.
     virtual srs_error_t initialize(SrsSharedPtr<SrsLiveSource> wrapper, SrsRequest* r, ISrsLiveSourceHandler* h);
@@ -612,6 +619,17 @@ public:
     virtual void on_edge_proxy_unpublish();
 public:
     virtual std::string get_curr_origin();
+};
+
+// Keep a fetched source in the pool while its client may yield before it publishes or plays it, for example in
+// the on_publish hook, so the cleanup timer never drops it and a reconnecting publisher never gets a second source.
+class SrsLiveSourcePendingClient
+{
+private:
+    SrsSharedPtr<SrsLiveSource> source_;
+public:
+    SrsLiveSourcePendingClient(SrsSharedPtr<SrsLiveSource> source);
+    virtual ~SrsLiveSourcePendingClient();
 };
 
 #endif
