@@ -5,6 +5,15 @@ The changelog for the ITB fork of SRS.
 <a name="v6-itb-changes"></a>
 
 ## SRS 6.0 ITB Changelog
+* v6.0-itb.19, 2026-11-12, Upstream: Sync the fork base from SRS v6.0.191 to the v6.0-r3 release at v6.0.195. Based on upstream v6.0.195.
+* v6.0-itb.19, 2026-11-12, Security: Limit AMF0 object and array nesting to 64 levels, so a deeply nested RTMP or RTMPS `connect` or metadata can no longer overflow the coroutine stack and crash the server before any check. Based on upstream v6.0.195.
+* v6.0-itb.19, 2026-11-12, Security: Limit JSON nesting to 64 levels, so a deeply nested hook response or `/rtc/v1/*` request body, which the HTTP API auth does not cover, can no longer crash the server. Based on upstream v6.0.195.
+* v6.0-itb.19, 2026-11-12, Security: Refuse `..` in the app or stream name for every protocol, even with the vhost security disabled, so a stream name can no longer write DVR files outside `dvr_path`. Based on upstream v6.0.195.
+* v6.0-itb.19, 2026-11-12, RTC: Check the peer DTLS certificate against the SDP fingerprint, fix an abort from a STUN attribute without padding, and fix a crash and heap overflow from a malformed RTCP packet. Based on upstream v6.0.195.
+* v6.0-itb.19, 2026-11-12, TS/GB28181: Fix a malformed TS adaptation field that skipped past the packet and a GB28181 TCP heap overflow. Based on upstream v6.0.195.
+* v6.0-itb.19, 2026-11-12, SRT: Upgrade libsrt from 1.5.3 to 1.5.6 for CVE-2026-55868 and CVE-2026-55869. Based on upstream v6.0.195.
+* v6.0-itb.19, 2026-11-12, Config: Add `SRS_RTMP_LISTEN` for the RTMP listen, keeping `SRS_LISTEN` as an alias. Based on upstream v6.0.195.
+* v6.0-itb.19, 2026-11-12, Fork: Bump the fork display version to `6.0.195-itb.19`. Based on upstream v6.0.195.
 * v6.0-itb.18, 2026-11-10, RTMPS: Log the ciphers the client offers, in its order, as `client_ciphers` in the `client identified` line, to review the server order in the camera tests. Based on upstream v6.0.191.
 * v6.0-itb.18, 2026-11-10, RTMPS: Log the ciphers, groups and signature algorithms the client offers when the TLS handshake fails, as `client_ciphers`, `client_groups` and `client_sigalgs`. Based on upstream v6.0.191.
 * v6.0-itb.18, 2026-11-10, TLS: Log the OpenSSL reason when the handshake fails, such as `reason=no shared cipher`, for RTMPS and HTTPS, and clear the OpenSSL error queue before the handshake so errors of other coroutines are not taken. Based on upstream v6.0.191.
